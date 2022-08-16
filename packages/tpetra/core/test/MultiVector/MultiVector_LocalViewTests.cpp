@@ -88,9 +88,11 @@ TEUCHOS_UNIT_TEST_TEMPLATE_4_DECL( MultiVector, TeuchosArray, LO, GO, Scalar , N
       auto dataDevice = defaultVec.getLocalViewDevice(Tpetra::Access::ReadOnly);
     } 
     catch (...) {
+      /*
       std::cout << me 
                 << " caught exception trying to get a device view"
                 << " while holding a local view " << std::endl;
+      */
       threw = true;
     }
     ierr += (threw == shouldThrow) ? 0 : 1;
@@ -103,9 +105,11 @@ TEUCHOS_UNIT_TEST_TEMPLATE_4_DECL( MultiVector, TeuchosArray, LO, GO, Scalar , N
       auto dataDevice = defaultVec.getLocalViewDevice(Tpetra::Access::ReadOnly);
     } 
     catch (...) {
+      /*
       std::cout << me 
                 << " caught exception trying to get a device view"
                 << " while holding a local view " << std::endl;
+      */
       threw = true;
     }
     ierr += (threw == shouldThrow) ? 0 : 1;
@@ -118,9 +122,11 @@ TEUCHOS_UNIT_TEST_TEMPLATE_4_DECL( MultiVector, TeuchosArray, LO, GO, Scalar , N
       auto dataDevice = defaultVec.getLocalViewDevice(Tpetra::Access::ReadOnly);
     } 
     catch (...) {
+      /*
       std::cout << me 
                 << " caught exception trying to get a device view"
                 << " while holding a local view " << std::endl;
+      */
       threw = true;
     }
     ierr += (threw == shouldThrow) ? 0 : 1;
@@ -133,9 +139,11 @@ TEUCHOS_UNIT_TEST_TEMPLATE_4_DECL( MultiVector, TeuchosArray, LO, GO, Scalar , N
       auto dataDevice = defaultVec.getLocalViewDevice(Tpetra::Access::ReadOnly);
     } 
     catch (...) {
+      /*
       std::cout << me 
                 << " caught exception trying to get a device view"
                 << " while holding a local view " << std::endl;
+      */
       threw = true;
     }
     ierr += (threw == shouldThrow) ? 0 : 1;
@@ -307,7 +315,9 @@ TEUCHOS_UNIT_TEST_TEMPLATE_4_DECL( MultiVector, DeviceHostView, LO, GO, Scalar ,
   try {
     auto data_old = defaultVec.getLocalViewHost(Tpetra::Access::ReadOnly);
   } catch (...) {
-    std::cout << me << " caught exception trying to get a local view while holding a device view" << std::endl;
+    /*
+      std::cout << me << " caught exception trying to get a local view while holding a device view" << std::endl;
+    */
     threw = true;
   }
 
