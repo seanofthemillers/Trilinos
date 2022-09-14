@@ -5394,7 +5394,7 @@ CrsMatrix<Scalar, LocalOrdinal, GlobalOrdinal, Node>::
               getGlobalRowView (gid, rowinds, rowvals);
               for (size_t j = 0; j < nE; ++j) {
                 out << " (" << rowinds[j]
-                    << ", " << rowvals[j]
+                    << ", " << std::scientific << rowvals[j]
                     << ") ";
               }
             }
@@ -5404,7 +5404,7 @@ CrsMatrix<Scalar, LocalOrdinal, GlobalOrdinal, Node>::
               getLocalRowView (r, rowinds, rowvals);
               for (size_t j=0; j < nE; ++j) {
                 out << " (" << getColMap()->getGlobalElement(rowinds[j])
-                    << ", " << rowvals[j]
+                    << ", " << std::scientific << rowvals[j]
                     << ") ";
               }
             } // globally or locally indexed

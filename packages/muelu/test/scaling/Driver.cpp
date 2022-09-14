@@ -51,6 +51,7 @@
 #include <Teuchos_XMLParameterListHelpers.hpp>
 #include <Teuchos_YamlParameterListHelpers.hpp>
 #include <Teuchos_StandardCatchMacros.hpp>
+#include <Teuchos_CommHelpers.hpp>
 
 // Xpetra
 #include <Xpetra_MultiVectorFactory.hpp>
@@ -275,6 +276,9 @@ int main_(Teuchos::CommandLineProcessor &clp, Xpetra::UnderlyingLib& lib, int ar
   RCP<Teuchos::FancyOStream> fancy = Teuchos::fancyOStream(Teuchos::rcpFromRef(std::cout));
   Teuchos::FancyOStream& out = *fancy;
   out.setOutputToRootOnly(0);
+
+  // Return value from driver
+  int ret = EXIT_SUCCESS;
 
   ParameterList paramList;
   auto inst = xpetraParameters.GetInstantiation();
@@ -506,6 +510,9 @@ MueLu::MueLu_AMGX_initialize_plugins();
       }
       catch(const std::exception& e) {
         out2<<"MueLu_Driver: solver crashed w/ message:"<<e.what()<<std::endl;
+        std::cout << comm->getRank() << ": MueLu Solver crash: " << e.what() << std::endl;
+        ret = EXIT_FAILURE;
+        stop = true;
       }
 
 
@@ -556,6 +563,12 @@ MueLu::MueLu_AMGX_initialize_plugins();
         }
       }
       fflush(NULL);
+      {
+        int my_stop = stop ? 0 : 1;
+        int all_stop = 0;
+        Teuchos::reduceAll<int,int>(*comm, Teuchos::REDUCE_AND, 1, &my_stop, &all_stop);
+        stop = all_stop == 0 ? true : false;
+      }
       comm->barrier();
     } while (!stop);
 
@@ -580,7 +593,7 @@ MueLu::MueLu_AMGX_finalize_plugins();
 MueLu::MueLu_AMGX_finalize();
 #endif
 
-  return EXIT_SUCCESS;
+  return ret;
 }
 
 //- -- --------------------------------------------------------
