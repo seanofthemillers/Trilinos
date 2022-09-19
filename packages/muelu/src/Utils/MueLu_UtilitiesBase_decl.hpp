@@ -699,18 +699,18 @@ namespace MueLu {
       // power iteration
       for (int iter = 0; iter < niters; ++iter) {
         z->norm2(norms);                                  // Compute 2-norm of z
-        std::cout << "z: " << Teuchos::describe(*z, Teuchos::VERB_EXTREME) << std::endl;
+        std::cout << "z: " << z->norm2() << /*", values: " << Teuchos::describe(*z, Teuchos::VERB_EXTREME) << */ std::endl;
         q->update(one/norms[0], *z, zero);                // Set q = z / normz
 
         // DEBUG
         auto tqv = q->getHostLocalView(Xpetra::Access::ReadWrite);
-        std::cout << "q = norm(z): " << Teuchos::describe(*q, Teuchos::VERB_EXTREME) << std::endl;
+        std::cout << "q = norm(z): " << q->norm2() << /*", values: " << Teuchos::describe(*q, Teuchos::VERB_EXTREME) << */ std::endl;
 
         A.apply(*q, *z);                                  // Compute z = A*q
-        std::cout << "z = A*q: " << Teuchos::describe(*z, Teuchos::VERB_EXTREME) << std::endl;
+        std::cout << "z = A*q: " << z->norm2() << /* ", values: " << Teuchos::describe(*z, Teuchos::VERB_EXTREME) << */ std::endl;
         if (diagInvVec != Teuchos::null){
           z->elementWiseMultiply(one, *diagInvVec, *z, zero);
-          std::cout << "z = inv(D)*A*q: " << Teuchos::describe(*z, Teuchos::VERB_EXTREME) << std::endl;
+          std::cout << "z = inv(D)*A*q: " << z->norm2() << /* ", values: " << Teuchos::describe(*z, Teuchos::VERB_EXTREME) << */ std::endl;
         }
         lambda = q->dot(*z);                              // Approximate maximum eigenvalue: lamba = dot(q,z)
 

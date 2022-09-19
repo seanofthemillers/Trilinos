@@ -184,6 +184,7 @@ namespace MueLu {
       {
         SubFactoryMonitor m2(*this, "Eigenvalue estimate", coarseLevel);
         lambdaMax = A->GetMaxEigenvalueEstimate();
+        GetOStream(Statistics0) << "restrictionMode_: " << restrictionMode_ << std::endl;
         GetOStream(Statistics0) << "lambdaMax Estimate = " << lambdaMax << ", estimateMaxEigen = " << estimateMaxEigen << ", useAbsValueRowSum = " << useAbsValueRowSum << std::endl;
         if (lambdaMax == -Teuchos::ScalarTraits<SC>::one() || estimateMaxEigen) {
           GetOStream(Statistics1) << "Calculating max eigenvalue estimate now (max iters = "<< maxEigenIterations <<
@@ -198,8 +199,8 @@ namespace MueLu {
                                                         useAutomaticDiagTol);
             TEUCHOS_TEST_FOR_EXCEPTION(invDiag.is_null(), Exceptions::RuntimeError,
                                        "SaPFactory: eigenvalue estimate: diagonal reciprocal is null.");
-            GetOStream(Statistics0) << "A = " << Teuchos::describe(*A, Teuchos::VERB_EXTREME) << std::endl;
-            GetOStream(Statistics0) << "invDiag = " << Teuchos::describe(*invDiag, Teuchos::VERB_EXTREME) << std::endl;
+            // GetOStream(Statistics0) << "A = " << Teuchos::describe(*A, Teuchos::VERB_EXTREME) << std::endl;
+            // GetOStream(Statistics0) << "invDiag = " << Teuchos::describe(*invDiag, Teuchos::VERB_EXTREME) << std::endl;
             lambdaMax = Utilities::PowerMethod(*A, invDiag, maxEigenIterations, stopTol, true);
           } else
             lambdaMax = Utilities::PowerMethod(*A, true, maxEigenIterations, stopTol);
