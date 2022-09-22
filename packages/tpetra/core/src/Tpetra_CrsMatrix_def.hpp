@@ -1070,17 +1070,24 @@ namespace Tpetra {
     //   std::cout << std::endl;
     // }
     
-
-    auto localMatrix = getLocalMatrixDevice();
-
     Kokkos::fence();
     {
+      auto localMatrix = getLocalMatrixDevice();
       auto h_i = Kokkos::create_mirror_view_and_copy(Kokkos::HostSpace(), localMatrix.values);
       std::cout << "A (dev) = ";
       for(size_t i=0; i<std::min(size_t(100),h_i.size()); ++i)
         std::cout << h_i[i] << " ";
       std::cout << std::endl;
     }
+    {
+      auto h_i = valuesPacked_wdv.getHostView(Access::OverwriteAll);
+      std::cout << "A (host) = ";
+      for(size_t i=0; i<std::min(size_t(100),h_i.size()); ++i)
+        std::cout << h_i[i] << " ";
+      std::cout << std::endl;
+    }
+
+    auto localMatrix = getLocalMatrixDevice();
 #ifdef HAVE_TPETRACORE_CUDA
 #ifdef KOKKOSKERNELS_ENABLE_TPL_CUSPARSE
     if(this->getLocalNumEntries() <= size_t(Teuchos::OrdinalTraits<LocalOrdinal>::max()) &&
