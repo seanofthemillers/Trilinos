@@ -62,8 +62,10 @@
 #endif
 #endif
 
+
+
 namespace MueLu {
-  
+
   long ExtractNonSerializableData(const Teuchos::ParameterList& inList, Teuchos::ParameterList& serialList, Teuchos::ParameterList& nonSerialList) {
     using Teuchos::ParameterList;
 
@@ -320,5 +322,6 @@ bool IsParamValidVariable(const std::string& name)
        return baseComm;
 #endif
     }
+
 
 } // namespace MueLu
