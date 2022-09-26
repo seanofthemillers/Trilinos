@@ -839,9 +839,6 @@ namespace Tpetra {
         if (callFillComplete) {
           A->fillComplete (pDomainMap, pRangeMap);
         }
-
-        std::cout << "XXXXXXXXXXXXXXXXX CALLING FILL COMPLETE ("<<callFillComplete<<") FOR MATRIXMARKET 3 xxxxxxxxxxxxxxxxx" << std::endl;
-
         return A;
       }
 
@@ -928,8 +925,6 @@ namespace Tpetra {
         myColInd = null;
         myValues = null;
 
-        std::cout << "XXXXXXXXXXXXXXXXX CALLING FILL COMPLETE FOR MATRIXMARKET xxxxxxxxxxxxxxxxx" << std::endl;
-
         A->fillComplete (pDomainMap, pRangeMap, fillCompleteParams);
         return A;
       }
@@ -1001,9 +996,6 @@ namespace Tpetra {
             colMap = A->getColMap ();
           }
         }
-
-        std::cout << "XXXXXXXXXXXXXXXXX CALLING FILL COMPLETE FOR MATRIXMARKET 2 xxxxxxxxxxxxxxxxx" << std::endl;
-
         return A;
       }
 

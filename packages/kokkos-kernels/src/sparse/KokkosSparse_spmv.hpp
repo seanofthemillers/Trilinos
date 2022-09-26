@@ -200,24 +200,6 @@ void spmv(KokkosKernels::Experimental::Controls controls, const char mode[],
   }
 #endif
 
-  Kokkos::fence();
-  {
-    auto h_i = Kokkos::create_mirror_view_and_copy(Kokkos::HostSpace(), x_i);
-    std::cout << "x_i = ";
-    for(size_t i=0; i<std::min(size_t(100),h_i.size()); ++i)
-      std::cout << h_i[i] << " ";
-    std::cout << std::endl;
-  }
-
-
-  {
-    auto h_i = Kokkos::create_mirror_view_and_copy(Kokkos::HostSpace(), A_i.values);
-    std::cout << "A_i = ";
-    for(size_t i=0; i<std::min(size_t(100),h_i.size()); ++i)
-      std::cout << std::scientific << h_i[i] << " ";
-    std::cout << std::endl;
-  }
-
 #ifdef KOKKOSKERNELS_ENABLE_TPL_MKL
   if (std::is_same<typename AMatrix_Internal::memory_space,
                    Kokkos::HostSpace>::value) {
@@ -271,18 +253,6 @@ void spmv(KokkosKernels::Experimental::Controls controls, const char mode[],
                                                                alpha, A_i, x_i,
                                                                beta, y_i);
   }
-
-
-  Kokkos::fence();
-  {
-    auto h_i = Kokkos::create_mirror_view_and_copy(Kokkos::HostSpace(), y_i);
-    std::cout << "y_i = ";
-    for(size_t i=0; i<std::min(size_t(100),h_i.size()); ++i)
-      std::cout << h_i[i] << " ";
-    std::cout << std::endl;
-  }
-
-
 }
 
 #ifdef DOXY  // hide SFINAE from documentation

@@ -158,7 +158,6 @@ namespace Tpetra {
          "size_t [, RCP<ParameterList>]) threw an exception: "
          << e.what ());
     }
-    std::cout << "YYYYYYYYYYYYYYYY CALLING CONSTRUCTOR 111" << std::endl;
     // myGraph_ not null means that the matrix owns the graph.  That's
     // different than the const CrsGraph constructor, where the matrix
     // does _not_ own the graph.
@@ -190,8 +189,6 @@ namespace Tpetra {
          "[, RCP<ParameterList>]) threw an exception: "
          << e.what ());
     }
-
-    std::cout << "YYYYYYYYYYYYYYYY CALLING CONSTRUCTOR -10" << std::endl;
     // myGraph_ not null means that the matrix owns the graph.  That's
     // different than the const CrsGraph constructor, where the matrix
     // does _not_ own the graph.
@@ -235,8 +232,6 @@ namespace Tpetra {
          "RCP<const Map>, size_t[, RCP<ParameterList>]) threw an "
          "exception: " << e.what ());
     }
-
-    std::cout << "YYYYYYYYYYYYYYYY CALLING CONSTRUCTOR 21" << std::endl;
     // myGraph_ not null means that the matrix owns the graph.  That's
     // different than the const CrsGraph constructor, where the matrix
     // does _not_ own the graph.
@@ -269,7 +264,6 @@ namespace Tpetra {
          "RCP<const Map>, ArrayView<const size_t>[, "
          "RCP<ParameterList>]) threw an exception: " << e.what ());
     }
-    std::cout << "YYYYYYYYYYYYYYYY CALLING CONSTRUCTOR 17" << std::endl;
     // myGraph_ not null means that the matrix owns the graph.  That's
     // different than the const CrsGraph constructor, where the matrix
     // does _not_ own the graph.
@@ -325,8 +319,6 @@ namespace Tpetra {
       std::cerr << os.str ();
     }
 
-    std::cout << "YYYYYYYYYYYYYYYY CALLING CONSTRUCTOR 15" << std::endl;
-
     values_type val ("Tpetra::CrsMatrix::values", numEnt);
     valuesPacked_wdv = values_wdv_type(val);
     valuesUnpacked_wdv = valuesPacked_wdv;
@@ -361,8 +353,6 @@ namespace Tpetra {
        "calling resumeFill on the graph makes it not fill complete, "
        "even if you had previously called fillComplete.  In that "
        "case, you must call fillComplete on the graph again.");
-
-       std::cout << "YYYYYYYYYYYYYYYY CALLING COPY CONSTRUCTOR 2" << std::endl;
 
     size_t numValuesPacked = graph->lclIndsPacked_wdv.extent(0);
     valuesPacked_wdv = values_wdv_type(matrix.valuesPacked_wdv, 0, numValuesPacked);
@@ -401,8 +391,6 @@ namespace Tpetra {
     // values and build the local matrix right now.  Note that the
     // local matrix's number of columns comes from the column Map, not
     // the domain Map.
-
-    std::cout << "YYYYYYYYYYYYYYYY CALLING COPY CONSTRUCTOR 1" << std::endl;
 
     valuesPacked_wdv = values_wdv_type(values);
     valuesUnpacked_wdv = valuesPacked_wdv;
@@ -445,8 +433,6 @@ namespace Tpetra {
       os << *prefix << "Start" << endl;
       std::cerr << os.str ();
     }
-
-    std::cout << "YYYYYYYYYYYYYYYY CALLING CONSTRUCTOR 12" << std::endl;
 
     // Check the user's input.  Note that this might throw only on
     // some processes but not others, causing deadlock.  We prefer
@@ -589,8 +575,6 @@ namespace Tpetra {
     valuesPacked_wdv = values_wdv_type(valIn);
     valuesUnpacked_wdv = valuesPacked_wdv;
 
-    std::cout << "YYYYYYYYYYYYYYYY CALLING CONSTRUCTOR 1" << std::endl;
-
     // FIXME (22 Jun 2016) I would very much like to get rid of
     // k_values1D_ at some point.  I find it confusing to have all
     // these extra references lying around.
@@ -635,8 +619,6 @@ namespace Tpetra {
     // the matrix, implying shared ownership.
     myGraph_ = graph;
     staticGraph_ = graph;
-
-    std::cout << "YYYYYYYYYYYYYYYY CALLING CONSTRUCTOR 14" << std::endl;
 
     valuesPacked_wdv = values_wdv_type(lclMatrix.values);
     valuesUnpacked_wdv = valuesPacked_wdv;
@@ -691,8 +673,6 @@ namespace Tpetra {
     // the matrix, implying shared ownership.
     myGraph_ = graph;
     staticGraph_ = graph;
-
-    std::cout << "YYYYYYYYYYYYYYYY CALLING CONSTRUCTOR 7" << std::endl;
 
     valuesPacked_wdv = values_wdv_type(lclMatrix.values);
     valuesUnpacked_wdv = valuesPacked_wdv;
@@ -751,8 +731,6 @@ namespace Tpetra {
     myGraph_ = graph;
     staticGraph_ = graph;
 
-    std::cout << "YYYYYYYYYYYYYYYY CALLING CONSTRUCTOR 4" << std::endl;
-
     valuesPacked_wdv = values_wdv_type(lclMatrix.values);
     valuesUnpacked_wdv = valuesPacked_wdv;
 
@@ -780,8 +758,6 @@ namespace Tpetra {
     TEUCHOS_TEST_FOR_EXCEPTION_CLASS_FUNC
       (! source.isFillComplete (), std::invalid_argument,
        "Source graph must be fillComplete().");
-
-       std::cout << "YYYYYYYYYYYYYYYY CALLING COPY CONSTRUCTOR 3" << std::endl;
 
     if (copyOrView == Teuchos::Copy) {
       using values_type = typename local_matrix_device_type::values_type;
@@ -1058,29 +1034,7 @@ namespace Tpetra {
   CrsMatrix<Scalar, LocalOrdinal, GlobalOrdinal, Node>::
   getLocalMultiplyOperator () const
   {
-
-    std::cout << "GRABBING LOCAL MATRIX DEVICE: needs sync device = " << valuesPacked_wdv.need_sync_device() << ", host = " << valuesPacked_wdv.need_sync_host() << std::endl;
-
-    // This fixes the bug
-    // {
-    //   auto h_i = valuesPacked_wdv.getHostView(Access::ReadWrite);
-    //   std::cout << "A (host) = ";
-    //   for(size_t i=0; i<std::min(size_t(100),h_i.size()); ++i)
-    //     std::cout << h_i[i] << " ";
-    //   std::cout << std::endl;
-    // }
-    
-
     auto localMatrix = getLocalMatrixDevice();
-
-    Kokkos::fence();
-    {
-      auto h_i = Kokkos::create_mirror_view_and_copy(Kokkos::HostSpace(), localMatrix.values);
-      std::cout << "A (dev) = ";
-      for(size_t i=0; i<std::min(size_t(100),h_i.size()); ++i)
-        std::cout << h_i[i] << " ";
-      std::cout << std::endl;
-    }
 #ifdef HAVE_TPETRACORE_CUDA
 #ifdef KOKKOSKERNELS_ENABLE_TPL_CUSPARSE
     if(this->getLocalNumEntries() <= size_t(Teuchos::OrdinalTraits<LocalOrdinal>::max()) &&
@@ -1503,36 +1457,6 @@ namespace Tpetra {
       myGraph_->setRowPtrsPacked(myGraph_->rowPtrsUnpacked_dev_);
       myGraph_->lclIndsPacked_wdv = myGraph_->lclIndsUnpacked_wdv;
       valuesPacked_wdv = valuesUnpacked_wdv;
-
-      // Kokkos::fence();
-      // {
-      //   std::cout << "fillComplete call: valuesUnpacked_wdv : need device sync = " 
-      //     << valuesUnpacked_wdv.need_sync_device() << ", need host sync = " 
-      //     << valuesUnpacked_wdv.need_sync_host() << ", valuesUnpacked_wdv : need device sync = " 
-      //     << valuesUnpacked_wdv.need_sync_device() << ", need host sync = " 
-      //     << valuesUnpacked_wdv.need_sync_host() << std::endl;
-      //   auto print_host = [=](const std::string & name, auto wdv){
-      //     auto h_i = wdv.getHostCopy();
-      //     std::cout << name << " = ";
-      //     for(size_t i=0; i<std::min(size_t(10),h_i.size()); ++i)
-      //       std::cout << h_i[i] << " ";
-      //     std::cout << std::endl;
-      //   };
-      //   auto print_device = [=](const std::string & name, auto wdv){
-      //     auto d_i = wdv.getDeviceCopy();
-      //     auto h_i = Kokkos::create_mirror_view_and_copy(Kokkos::HostSpace(), d_i);
-      //     std::cout << name << " = ";
-      //     for(size_t i=0; i<std::min(size_t(10),h_i.size()); ++i)
-      //       std::cout << h_i[i] << " ";
-      //     std::cout << std::endl;
-      //   };
-
-      //   print_host("unpacked_host",valuesUnpacked_wdv);
-      //   print_device("unpacked_device",valuesUnpacked_wdv);
-      //   print_host("packed_host",valuesPacked_wdv);
-      //   print_device("packed_device",valuesPacked_wdv);
-        
-      // }
 
       if (verbose) {
         std::ostringstream os;
@@ -5470,7 +5394,7 @@ CrsMatrix<Scalar, LocalOrdinal, GlobalOrdinal, Node>::
               getGlobalRowView (gid, rowinds, rowvals);
               for (size_t j = 0; j < nE; ++j) {
                 out << " (" << rowinds[j]
-                    << ", " << std::scientific << rowvals[j]
+                    << ", " << rowvals[j]
                     << ") ";
               }
             }
@@ -5480,7 +5404,7 @@ CrsMatrix<Scalar, LocalOrdinal, GlobalOrdinal, Node>::
               getLocalRowView (r, rowinds, rowvals);
               for (size_t j=0; j < nE; ++j) {
                 out << " (" << getColMap()->getGlobalElement(rowinds[j])
-                    << ", " << std::scientific << rowvals[j]
+                    << ", " << rowvals[j]
                     << ") ";
               }
             } // globally or locally indexed
