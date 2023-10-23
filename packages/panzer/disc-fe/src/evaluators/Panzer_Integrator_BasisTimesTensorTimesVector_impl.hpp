@@ -72,8 +72,8 @@ namespace panzer
     const std::string&              tensorName)
     :
     evalStyle_(evalStyle),
-    useDescriptors_(false),
-    basisName_(basis.name())
+    bd_(*basis.getBasis()),
+    id_(ir)
   {
     using PHX::View;
     using panzer::BASIS;
@@ -144,7 +144,6 @@ namespace panzer
     const PHX::FieldTag&                                  tensorTag)
     :
     evalStyle_(evalStyle),
-    useDescriptors_(true),
     bd_(bd),
     id_(id)
   {
@@ -231,7 +230,6 @@ namespace panzer
     typename Traits::SetupData sd,
     PHX::FieldManager<Traits>& /* fm */)
   {
-    using panzer::getBasisIndex;
     using std::size_t;
 
     // Get the PHX::View of the tensor.
@@ -241,10 +239,6 @@ namespace panzer
     // vector that we're integrating.
     numQP_  = vector_.extent(1);
     numDim_ = vector_.extent(2);
-
-    // Determine the index in the Workset bases for our particular basis name.
-    if (not useDescriptors_)
-      basisIndex_ = getBasisIndex(basisName_, (*sd.worksets_)[0], this->wda);
 
     if (Sacado::IsADType<ScalarT>::value) {
       const auto fadSize = Kokkos::dimension_scalar(field_.get_view());
@@ -306,11 +300,9 @@ namespace panzer
     using Kokkos::RangePolicy;
 
     // Grab the basis information.
-    const panzer::BasisValues2<double>& bv = useDescriptors_ ?
-      this->wda(workset).getBasisValues(bd_,id_) :
-      *this->wda(workset).bases[basisIndex_];
+    const panzer::BasisValues2<double>& bv = this->wda(workset).getBasisValues(bd_,id_);
     using Array=typename BasisValues2<double>::ConstArray_CellBasisIPDim;
-    basis_ = useDescriptors_ ? bv.getVectorBasisValues(true) : Array(bv.weighted_basis_vector);
+    basis_ = bv.getVectorBasisValues(true);
 
     parallel_for(RangePolicy<>(0, workset.num_cells), *this);
   } // end of evaluateFields()

@@ -58,6 +58,8 @@
 // Panzer
 #include "Panzer_Evaluator_WithBaseImpl.hpp"
 #include "Panzer_EvaluatorStyle.hpp"
+#include "Panzer_BasisDescriptor.hpp"
+#include "Panzer_IntegrationDescriptor.hpp"
 
 // Phalanx
 #include "Phalanx_Evaluator_Derived.hpp"
@@ -300,20 +302,19 @@ namespace panzer
       int numQP_;
 
       /**
-       *  \brief The name of the basis we're using.
+       *  \brief Description of the basis.
        */
-      std::string basisName_;
+      BasisDescriptor bd_;
 
       /**
-       *  \brief The index in the `Workset` bases for our particular
-       *         `BasisIRLayout` name.
+       *  \brief Description of the integration rule.
        */
-      std::size_t basisIndex_;
+      IntegrationDescriptor id_;
 
       /**
        *  \brief The scalar basis information necessary for integration.
        */
-      PHX::MDField<double, panzer::Cell, panzer::BASIS, panzer::IP> basis_;
+      PHX::MDField<const double, panzer::Cell, panzer::BASIS, panzer::IP> basis_;
 
     /// For storing temporaries, one value per thread
     PHX::View<ScalarT*> tmp_;

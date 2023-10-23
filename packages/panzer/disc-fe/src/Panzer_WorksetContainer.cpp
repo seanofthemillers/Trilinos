@@ -53,7 +53,7 @@ namespace panzer {
 
 //! Default contructor, starts with no workset factory objects
 WorksetContainer::WorksetContainer()
-   : worksetSize_(1)
+   : worksetSize_(0)
 {}
 WorksetContainer::WorksetContainer(const Teuchos::RCP<const WorksetFactoryBase> & factory,
                                    const std::map<std::string,WorksetNeeds> & needs)
@@ -120,7 +120,14 @@ WorksetContainer::getWorksets(const WorksetDescriptor & wd)
       WorksetNeeds needs;
       if(hasNeeds())
         needs = lookupNeeds(wd.getElementBlock());
-      worksetVector = wkstFactory_->getWorksets(wd,needs);
+
+      // FIXME: Terrible workaround for overriding workset size in a descriptor
+      // The WorksetContainer is able to override the workset size in the descriptor
+      WorksetDescriptor fake_wd = wd;
+      if(worksetSize_ > 0)
+        fake_wd.setWorksetSize(worksetSize_);
+
+      worksetVector = wkstFactory_->getWorksets(fake_wd,needs);
 
       // apply orientations to the just constructed worksets
       if(worksetVector!=Teuchos::null && wd.applyOrientations()) {

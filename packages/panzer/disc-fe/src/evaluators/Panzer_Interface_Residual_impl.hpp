@@ -70,6 +70,8 @@ InterfaceResidual(
   const Teuchos::RCP<const panzer::IntegrationRule> ir = 
     p.get< Teuchos::RCP<const panzer::IntegrationRule> >("IR");
 
+  bd_ = *basis;
+  id_ = *ir;
 
   residual = PHX::MDField<ScalarT>(residual_name, basis->functional);
   normal_dot_flux = PHX::MDField<ScalarT>(normal_dot_flux_name, ir->dl_scalar);
@@ -80,8 +82,6 @@ InterfaceResidual(
   this->addEvaluatedField(normal_dot_flux);
   this->addDependentField(normal);
   this->addDependentField(flux);
- 
-  basis_name = panzer::basisIRLayout(basis,*ir)->name();
 
   std::string n = "Interface Residual Evaluator";
   this->setName(n);
@@ -101,7 +101,6 @@ postRegistrationSetup(
   TEUCHOS_ASSERT(flux.extent(1) == normal.extent(1));
   TEUCHOS_ASSERT(flux.extent(2) == normal.extent(2));
 
-  basis_index = panzer::getBasisIndex(basis_name, (*sd.worksets_)[0], this->wda);
 }
 
 //**********************************************************************
@@ -122,12 +121,11 @@ evaluateFields(
     }
   }
 
-  // const Kokkos::DynRankView<double,PHX::Device> & weighted_basis = this->wda(workset).bases[basis_index]->weighted_basis;
-  const Teuchos::RCP<const BasisValues2<double> > bv = this->wda(workset).bases[basis_index];
+  auto wbs = this->wda(workset).getBasisValues(bd_,id_).getBasisValues(true);
   for (index_t cell = 0; cell < workset.num_cells; ++cell) {
     for (std::size_t basis = 0; basis < residual.extent(1); ++basis) {
       for (std::size_t qp = 0; qp < num_ip; ++qp) {
-        residual(cell,basis) += normal_dot_flux(cell,qp)*bv->weighted_basis_scalar(cell,basis,qp);
+        residual(cell,basis) += normal_dot_flux(cell,qp)*wbs(cell,basis,qp);
       }
     }
   }
@@ -136,7 +134,7 @@ evaluateFields(
     Intrepid2::FunctionSpaceTools<PHX::exec_space>::
       integrate(residual.get_view(),
                 normal_dot_flux.get_view(), 
-                (this->wda(workset).bases[basis_index])->weighted_basis_scalar.get_view());
+                wbs.get_view());
 }
 
 //**********************************************************************

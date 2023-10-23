@@ -59,14 +59,16 @@ Integrator_TransientBasisTimesScalar(
   residual( p.get<std::string>("Residual Name"), 
 	    p.get< Teuchos::RCP<panzer::BasisIRLayout> >("Basis")->functional),
   scalar( p.get<std::string>("Value Name"), 
-	  p.get< Teuchos::RCP<panzer::IntegrationRule> >("IR")->dl_scalar),
-  basis_name(p.get< Teuchos::RCP<panzer::BasisIRLayout> >("Basis")->name())
+	  p.get< Teuchos::RCP<panzer::IntegrationRule> >("IR")->dl_scalar)
 {
   Teuchos::RCP<Teuchos::ParameterList> valid_params = this->getValidParameters();
   p.validateParameters(*valid_params);
 
   Teuchos::RCP<const PureBasis> basis 
      = p.get< Teuchos::RCP<BasisIRLayout> >("Basis")->getBasis();
+  auto ir = p.get< Teuchos::RCP<panzer::IntegrationRule> >("IR");
+  bd_ = *basis;
+  id_ = *ir;
 
   // Verify that this basis supports the gradient operation
   TEUCHOS_TEST_FOR_EXCEPTION(!basis->isScalarBasis(),std::logic_error,
@@ -113,8 +115,6 @@ postRegistrationSetup(
   num_nodes = residual.extent(1);
   num_qp = scalar.extent(1);
 
-  basis_index = panzer::getBasisIndex(basis_name, (*sd.worksets_)[0], this->wda);
-
   tmp = Kokkos::createDynRankView(residual.get_static_view(),"tmp",scalar.extent(0), num_qp); 
 }
 
@@ -141,11 +141,13 @@ evaluateFields(
       }
     }
 
-    if(workset.num_cells>0)
+    if(workset.num_cells>0){
+      auto wbs = this->wda(workset).getBasisValues(bd_,id_).getBasisValues(true);
       Intrepid2::FunctionSpaceTools<PHX::exec_space>::
         integrate<ScalarT>(residual.get_view(),
                            tmp, 
-			   (this->wda(workset).bases[basis_index])->weighted_basis_scalar.get_view());
+			                     wbs.get_view());
+    }
   }
 }
 

@@ -76,8 +76,9 @@ namespace panzer
     const Teuchos::RCP<PHX::DataLayout>& vecDL       /* = Teuchos::null */)
     :
     evalStyle_(evalStyle),
-    multiplier_(multiplier),
-    basisName_(basis.name())
+    bd_(*basis.getBasis()),
+    id_(ir),
+    multiplier_(multiplier)
   {
     using PHX::View;
     using panzer::BASIS;
@@ -188,7 +189,6 @@ namespace panzer
     typename Traits::SetupData sd,
     PHX::FieldManager<Traits>& /* fm */)
   {
-    using panzer::getBasisIndex;
     using std::size_t;
 
     // Get the PHX::Views of the field multipliers.
@@ -196,9 +196,6 @@ namespace panzer
     for (size_t i(0); i < fieldMults_.size(); ++i)
       field_mults_host_mirror(i) = fieldMults_[i].get_static_view();
     Kokkos::deep_copy(kokkosFieldMults_,field_mults_host_mirror);
-
-    // Determine the index in the Workset bases for our particular basis name.
-    basisIndex_ = getBasisIndex(basisName_, (*sd.worksets_)[0], this->wda);
 
     // Allocate temporary if not using shared memory
     bool use_shared_memory = panzer::HP::inst().useSharedMemory<ScalarT>();
@@ -415,7 +412,7 @@ namespace panzer
     using Kokkos::TeamPolicy;
 
     // Grab the basis information.
-    basis_ = this->wda(workset).bases[basisIndex_]->weighted_grad_basis;
+    basis_ = this->wda(workset).getBasisValues(bd_,id_).getGradBasisValues(true);
 
     bool use_shared_memory = panzer::HP::inst().useSharedMemory<ScalarT>();
     if (use_shared_memory) {

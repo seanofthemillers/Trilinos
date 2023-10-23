@@ -75,7 +75,8 @@ namespace panzer
     :
     evalStyle_(evalStyle),
     multiplier_(multiplier),
-    basisName_(basis.name())
+    bd_(*basis.getBasis()),
+    id_(ir)
   {
     using PHX::View;
     using panzer::BASIS;
@@ -175,7 +176,6 @@ namespace panzer
     typename Traits::SetupData sd,
     PHX::FieldManager<Traits>& /* fm */)
   {
-    using panzer::getBasisIndex;
     using std::size_t;
 
     auto kokkosFieldMults_h = Kokkos::create_mirror_view(kokkosFieldMults_);
@@ -185,9 +185,6 @@ namespace panzer
       kokkosFieldMults_h(i) = fieldMults_[i].get_static_view();
 
     Kokkos::deep_copy(kokkosFieldMults_, kokkosFieldMults_h);
-
-    // Determine the index in the Workset bases for our particular basis name.
-    basisIndex_ = getBasisIndex(basisName_, (*sd.worksets_)[0], this->wda);
 
     // Allocate temporary
     if (Sacado::IsADType<ScalarT>::value) {
@@ -284,7 +281,7 @@ namespace panzer
     using Kokkos::RangePolicy;
 
     // Grab the basis information.
-    basis_ = this->wda(workset).bases[basisIndex_]->weighted_basis_scalar;
+    basis_ = this->wda(workset).getBasisValues(bd_,id_).getBasisValues(true);
 
     // The following if-block is for the sake of optimization depending on the
     // number of field multipliers.  The parallel_fors will loop over the cells

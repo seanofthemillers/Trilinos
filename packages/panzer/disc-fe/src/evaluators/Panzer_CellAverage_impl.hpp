@@ -56,13 +56,12 @@ namespace panzer {
 template<typename EvalT, typename Traits>
 CellAverage<EvalT, Traits>::
 CellAverage(
-  const Teuchos::ParameterList& p) : quad_index(0)
+  const Teuchos::ParameterList& p)
 {
   Teuchos::RCP<Teuchos::ParameterList> valid_params = this->getValidParameters();
   p.validateParameters(*valid_params);
 
   Teuchos::RCP<panzer::IntegrationRule> ir = p.get< Teuchos::RCP<panzer::IntegrationRule> >("IR");
-  quad_order = ir->cubature_degree;
 
   Teuchos::RCP<PHX::DataLayout> dl_cell = Teuchos::rcp(new PHX::MDALayout<Cell>(ir->dl_scalar->extent(0)));
   average = PHX::MDField<ScalarT,Cell>( p.get<std::string>("Average Name"), dl_cell);
@@ -104,7 +103,6 @@ postRegistrationSetup(
   PHX::FieldManager<Traits>& /* fm */)
 {
   num_qp = scalar.extent(1);
-  quad_index =  panzer::getIntegrationRuleIndex(quad_order,(*sd.worksets_)[0], this->wda);
 }
 
 //**********************************************************************

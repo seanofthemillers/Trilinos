@@ -267,6 +267,16 @@ namespace panzer
       const panzer::EvaluatorStyle evalStyle_;
 
       /**
+       *  \brief The `BasisDescriptor` for the basis to use.
+       */
+      panzer::BasisDescriptor bd_;
+
+      /**
+       *  \brief The `IntegrationDescriptor` for the quadrature to use.
+       */
+      panzer::IntegrationDescriptor id_;
+
+      /**
        *  \brief The fields to which we'll contribute, or in which we'll store,
        *         the result of computing this integral.
        */
@@ -306,21 +316,10 @@ namespace panzer
       int numDims_;
 
       /**
-       *  \brief The name of the basis we're using.
-       */
-      std::string basisName_;
-
-      /**
-       *  \brief The index in the `Workset` bases for our particular
-       *         `BasisIRLayout` name.
-       */
-      std::size_t basisIndex_;
-
-      /**
        *  \brief The gradient vector basis information necessary for
        *         integration.
        */
-      PHX::MDField<double, panzer::Cell, panzer::BASIS, panzer::IP,
+      PHX::MDField<const double, panzer::Cell, panzer::BASIS, panzer::IP,
         panzer::Dim> basis_;
 
   }; // end of class Integrator_GradBasisTimesScalar

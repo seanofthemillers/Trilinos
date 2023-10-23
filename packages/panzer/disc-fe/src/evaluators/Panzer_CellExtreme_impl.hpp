@@ -56,7 +56,7 @@ namespace panzer {
 template<typename EvalT, typename Traits>
 CellExtreme<EvalT, Traits>::
 CellExtreme(
-  const Teuchos::ParameterList& p) : quad_index(0)
+  const Teuchos::ParameterList& p)
 {
   Teuchos::RCP<Teuchos::ParameterList> valid_params = this->getValidParameters();
   p.validateParameters(*valid_params);
@@ -67,7 +67,6 @@ CellExtreme(
     use_max = p.get<bool>("Use Max");
 
   Teuchos::RCP<panzer::IntegrationRule> ir = p.get< Teuchos::RCP<panzer::IntegrationRule> >("IR");
-  quad_order = ir->cubature_degree;
 
   Teuchos::RCP<PHX::DataLayout> dl_cell = Teuchos::rcp(new PHX::MDALayout<Cell>(ir->dl_scalar->extent(0)));
   extreme = PHX::MDField<ScalarT>( p.get<std::string>("Extreme Name"), dl_cell);
@@ -109,7 +108,6 @@ postRegistrationSetup(
   PHX::FieldManager<Traits>& /* fm */)
 {
   num_qp = scalar.extent(1);
-  quad_index =  panzer::getIntegrationRuleIndex(quad_order,(*sd.worksets_)[0], this->wda);
 }
 
 //**********************************************************************

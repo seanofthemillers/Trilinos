@@ -63,24 +63,14 @@ fieldName(int degree)
 
 template<typename EvalT,typename TRAITS>
 panzer::GatherIntegrationCoordinates<EvalT, TRAITS>::
-GatherIntegrationCoordinates(const panzer::IntegrationRule & quad)
+GatherIntegrationCoordinates(const panzer::IntegrationRule & quad):
+  id_(quad)
 { 
-  quadDegree_ = quad.cubature_degree;
-
-  quadCoordinates_ = PHX::MDField<ScalarT,Cell,Point,Dim>(fieldName(quadDegree_),quad.dl_vector);
+  quadCoordinates_ = PHX::MDField<ScalarT,Cell,Point,Dim>(fieldName(id_.getOrder()),quad.dl_vector);
 
   this->addEvaluatedField(quadCoordinates_);
 
-  this->setName("Gather "+fieldName(quadDegree_));
-}
-
-// **********************************************************************
-template<typename EvalT,typename TRAITS>
-void panzer::GatherIntegrationCoordinates<EvalT, TRAITS>::
-postRegistrationSetup(typename TRAITS::SetupData sd, 
-		      PHX::FieldManager<TRAITS>& /* fm */)
-{
-  quadIndex_ = panzer::getIntegrationRuleIndex(quadDegree_, (*sd.worksets_)[0], this->wda);
+  this->setName("Gather "+fieldName(id_.getOrder()));
 }
 
 // **********************************************************************
@@ -89,7 +79,7 @@ void panzer::GatherIntegrationCoordinates<EvalT, TRAITS>::
 evaluateFields(typename TRAITS::EvalData workset)
 { 
   // const Kokkos::DynRankView<double,PHX::Device> & quadCoords = this->wda(workset).int_rules[quadIndex_]->ip_coordinates;  
-  const IntegrationValues2<double> & iv = *this->wda(workset).int_rules[quadIndex_];
+  const IntegrationValues2<double> & iv = this->wda(workset).getIntegrationValues(id_);
   auto s_ip_coordinates = iv.ip_coordinates.get_static_view();
   auto d_quadCoordinates = quadCoordinates_.get_static_view();
 

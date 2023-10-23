@@ -34,18 +34,15 @@ public:
                   const double kappa,
                   const std::string& basisName="u");
 
-    void postRegistrationSetup(typename Traits::SetupData d,
-                               PHX::FieldManager<Traits>& fm);
-
     void evaluateFields(typename Traits::EvalData d);
-
 
 private:
   typedef typename EvalT::ScalarT ScalarT;
 
   // Simulation source
   PHX::MDField<ScalarT,Cell,Point> source;
-  int ir_degree, ir_index, ir_dim;
+  panzer::IntegrationDescriptor id_;
+  int ir_dim;
   double kappa_;
 
   using device_type = PHX::Device;

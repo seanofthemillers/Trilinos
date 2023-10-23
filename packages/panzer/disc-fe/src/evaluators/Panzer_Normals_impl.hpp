@@ -69,7 +69,7 @@ Normals(
 
   // grab information from quadrature rule
   Teuchos::RCP<PHX::DataLayout> vector_dl = quadRule->dl_vector;
-  quad_order = quadRule->cubature_degree;
+  id_ = *quadRule;
 
   // build field, set as evaluated type
   normals = PHX::MDField<ScalarT,Cell,Point,Dim>(name, vector_dl);
@@ -89,8 +89,6 @@ postRegistrationSetup(
 {
   num_qp  = normals.extent(1);
   num_dim = normals.extent(2);
-  
-  quad_index =  panzer::getIntegrationRuleIndex(quad_order,(*sd.worksets_)[0], this->wda);
 }
 
 //**********************************************************************
@@ -103,9 +101,12 @@ evaluateFields(
   // ECC Fix: Get Physical Side Normals
 
   if(workset.num_cells>0) {
+
+    const auto & iv = this->wda(workset).getIntegrationValues(id_);
+
     Intrepid2::CellTools<PHX::exec_space>::getPhysicalSideNormals(normals.get_view(),
-                                                                  this->wda(workset).int_rules[quad_index]->jac.get_view(),
-                                                                  side_id, *this->wda(workset).int_rules[quad_index]->int_rule->topology);
+                                                                  iv.getJacobian().get_view(),
+                                                                  side_id, *iv.int_rule->topology);
       
     if(normalize) {
       // normalize vector: getPhysicalSideNormals does not 

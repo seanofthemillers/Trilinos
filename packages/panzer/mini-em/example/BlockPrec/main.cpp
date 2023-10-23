@@ -365,15 +365,15 @@ int main_(Teuchos::CommandLineProcessor &clp, int argc,char * argv[])
     Teuchos::RCP<panzer_stk::WorksetFactory> wkstFactory
       = Teuchos::rcp(new panzer_stk::WorksetFactory(mesh)); // build STK workset factory
     Teuchos::RCP<panzer::WorksetContainer> wkstContainer     // attach it to a workset container (uses lazy evaluation)
-      = Teuchos::rcp(new panzer::WorksetContainer);
+      = Teuchos::rcp(new panzer::WorksetContainer(wkstFactory));
     Teuchos::RCP<panzer::WorksetContainer> auxWkstContainer  // attach it to a workset container (uses lazy evaluation)
-      = Teuchos::rcp(new panzer::WorksetContainer);
-    wkstContainer->setFactory(wkstFactory);
-    auxWkstContainer->setFactory(wkstFactory);
-    for(size_t i=0;i<physicsBlocks.size();i++) {
-        wkstContainer->setNeeds(physicsBlocks[i]->elementBlockID(),physicsBlocks[i]->getWorksetNeeds());
-        auxWkstContainer->setNeeds(physicsBlocks[i]->elementBlockID(),auxPhysicsBlocks[i]->getWorksetNeeds());
-    }
+      = Teuchos::rcp(new panzer::WorksetContainer(wkstFactory));
+    // wkstContainer->setFactory(wkstFactory);
+    // auxWkstContainer->setFactory(wkstFactory);
+    // for(size_t i=0;i<physicsBlocks.size();i++) {
+    //     wkstContainer->setNeeds(physicsBlocks[i]->elementBlockID(),physicsBlocks[i]->getWorksetNeeds());
+    //     auxWkstContainer->setNeeds(physicsBlocks[i]->elementBlockID(),auxPhysicsBlocks[i]->getWorksetNeeds());
+    // }
     wkstContainer->setWorksetSize(workset_size);
     auxWkstContainer->setWorksetSize(workset_size);
 
@@ -509,7 +509,8 @@ int main_(Teuchos::CommandLineProcessor &clp, int argc,char * argv[])
 
       std::vector<panzer::WorksetDescriptor> wkst_descs;
       for(std::size_t i=0;i<eblocks.size();i++)
-        wkst_descs.push_back(panzer::blockDescriptor(eblocks[i]));
+        wkst_descs.push_back(panzer::WorksetDescriptor(eblocks[i],workset_size));
+        // wkst_descs.push_back(panzer::blockDescriptor(eblocks[i]));
 
       int respIndex = physicsME->addResponse(name,wkst_descs,builder);
       responseIndexToName[respIndex] = name;

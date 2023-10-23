@@ -83,7 +83,6 @@ class PointValues_Evaluator
 
   bool useBasisValuesRefArray; // if true then basis is non-null
   Teuchos::RCP<const panzer::PureBasis> basis;
-  std::size_t basis_index;
 
   //! Initialization method to unify the constructors.
   template <typename ArrayT>

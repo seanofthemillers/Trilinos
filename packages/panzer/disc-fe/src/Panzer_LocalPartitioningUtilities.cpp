@@ -419,6 +419,7 @@ namespace partitioning_utilities
 void
 setupSubLocalMeshInfo(const panzer::LocalMeshInfoBase & parent_info,
                       const std::vector<panzer::LocalOrdinal> & owned_parent_cells,
+                      const bool requires_connectivity,
                       panzer::LocalMeshInfoBase & sub_info)
 {
   using GO = panzer::GlobalOrdinal;
@@ -448,15 +449,17 @@ setupSubLocalMeshInfo(const panzer::LocalMeshInfoBase & parent_info,
 
   const int num_parent_total_cells = parent_info.num_owned_cells + parent_info.num_ghstd_cells + parent_info.num_virtual_cells;
 
-  // Just as a precaution, make sure the parent_info is setup properly
-  TEUCHOS_ASSERT(static_cast<int>(parent_info.cell_to_faces.extent(0)) == num_parent_total_cells);
-  const int num_faces_per_cell = parent_info.cell_to_faces.extent(1);
-
   // The first thing to do is construct a vector containing the parent cell indexes of all
   // owned, ghstd, and virtual cells
   std::vector<LO> ghstd_parent_cells;
   std::vector<LO> virtual_parent_cells;
-  {
+  if(requires_connectivity){
+
+    // Just as a precaution, make sure the parent_info is setup properly
+    TEUCHOS_ASSERT(static_cast<int>(parent_info.cell_to_faces.extent(0)) == num_parent_total_cells);
+    const int num_faces_per_cell = parent_info.cell_to_faces.extent(1);
+
+
     PANZER_FUNC_TIME_MONITOR_DIFF("Construct parent cell vector",ParentCell);
     // We grab all of the owned cells and put their global indexes into sub_info
     // We also put all of the owned cell indexes in the parent's indexing scheme into a set to use for lookups
@@ -580,6 +583,11 @@ setupSubLocalMeshInfo(const panzer::LocalMeshInfoBase & parent_info,
   Kokkos::deep_copy(sub_info.global_cells, global_cells_h);
   Kokkos::deep_copy(sub_info.local_cells, local_cells_h);
   Kokkos::deep_copy(sub_info.cell_nodes, cell_nodes_h);
+
+  // Quit early if we don't need the connectivity defined in the partition
+  if(!requires_connectivity)
+    return;
+
   // Now for the difficult part
 
   // We need to create a new face indexing scheme from the old face indexing scheme
@@ -600,6 +608,7 @@ setupSubLocalMeshInfo(const panzer::LocalMeshInfoBase & parent_info,
     LO subcell_index_1;
   };
 
+  const int num_faces_per_cell = parent_info.cell_to_faces.extent(1);
 
   // First create the faces
   std::vector<face_t> faces;
@@ -704,6 +713,7 @@ setupSubLocalMeshInfo(const panzer::LocalMeshInfoBase & parent_info,
 void
 splitMeshInfo(const panzer::LocalMeshInfoBase & mesh_info,
               const int splitting_size,
+              const bool requires_connectivity,
               std::vector<panzer::LocalMeshPartition> & partitions)
 {
 
@@ -742,7 +752,7 @@ splitMeshInfo(const panzer::LocalMeshInfoBase & mesh_info,
     partitions.push_back(panzer::LocalMeshPartition());
 
     // Fill the empty partition
-    partitioning_utilities::setupSubLocalMeshInfo(mesh_info,partition_cells,partitions.back());
+    partitioning_utilities::setupSubLocalMeshInfo(mesh_info,partition_cells,requires_connectivity,partitions.back());
 
     // Update the cell count
     cell_count += partition_size;
@@ -762,7 +772,9 @@ generateLocalMeshPartitions(const panzer::LocalMeshInfo & mesh_info,
   TEUCHOS_ASSERT(description.getWorksetSize() != 0);
 
   // This could just return, but it would be difficult to debug why no partitions were returned
-  TEUCHOS_ASSERT(description.requiresPartitioning());
+
+  // FIXME: RENAME THIS - This is currently used to decide if connectivity is added to the partition
+  const bool requires_connectivity = description.requiresPartitioning();
 
   const std::string & element_block_name = description.getElementBlock();
 
@@ -783,13 +795,13 @@ generateLocalMeshPartitions(const panzer::LocalMeshInfo & mesh_info,
     const panzer::LocalMeshSidesetInfo & sideset_info = sideset_map.at(sideset_name);
 
     // Partitioning is not important for sidesets
-    panzer::partitioning_utilities::splitMeshInfo(sideset_info, description.getWorksetSize(), partitions);
+    panzer::partitioning_utilities::splitMeshInfo(sideset_info, description.getWorksetSize(), requires_connectivity, partitions);
 
     for(auto & partition : partitions){
       partition.sideset_name = sideset_name;
       partition.element_block_name = element_block_name;
       partition.cell_topology = sideset_info.cell_topology;
-      partition.has_connectivity = true;
+      partition.has_connectivity = requires_connectivity;
     }
 
   } else {
@@ -803,19 +815,19 @@ generateLocalMeshPartitions(const panzer::LocalMeshInfo & mesh_info,
 
     if(description.getWorksetSize() == panzer::WorksetSizeType::ALL_ELEMENTS){
       // We only have one partition describing the entire local mesh
-      panzer::partitioning_utilities::splitMeshInfo(block_info, -1, partitions);
+      panzer::partitioning_utilities::splitMeshInfo(block_info, -1, requires_connectivity, partitions);
     } else {
       // We need to partition local mesh
 
-      // FIXME: Until the above function is fixed, we will use this hack - this will lead to horrible partitions
-      panzer::partitioning_utilities::splitMeshInfo(block_info, description.getWorksetSize(), partitions);
+      // FIXME: If requires_connectivity == true and this call is used, the resulting partitioning will be poor!
+      panzer::partitioning_utilities::splitMeshInfo(block_info, description.getWorksetSize(), requires_connectivity, partitions);
 
     }
 
     for(auto & partition : partitions){
       partition.element_block_name = element_block_name;
       partition.cell_topology = block_info.cell_topology;
-      partition.has_connectivity = true;
+      partition.has_connectivity = requires_connectivity;
     }
   }
 

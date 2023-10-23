@@ -1094,6 +1094,9 @@ getBasisValues(const bool weighted,
 
     if(hasUniformReferenceSpace()){
 
+
+      std::cout << "CALLING BasisValues2::getBasisValues (uniform)" << std::endl;
+
       auto cubature_points_uniform_ref = PHX::getNonConstDynRankViewFromConstMDField(cubature_points_uniform_ref_);
 
       // Apply a single reference representation to all cells
@@ -1113,6 +1116,8 @@ getBasisValues(const bool weighted,
       PHX::Device().fence();
 
     } else {
+
+      std::cout << "CALLING BasisValues2::getBasisValues (non-uniform)" << std::endl;
 
       // This is ugly. The algorithm is restricted to host/serial due
       // to a call to intrepid tools that require uniform reference
@@ -1254,6 +1259,8 @@ getVectorBasisValues(const bool weighted,
 
     if(hasUniformReferenceSpace()){
 
+      std::cout << "CALLING BasisValues2::getVectorBasisValues (uniform)" << std::endl;
+
       auto cubature_points_uniform_ref = PHX::getNonConstDynRankViewFromConstMDField(cubature_points_uniform_ref_);
 
       // Apply a single reference representation to all cells
@@ -1280,6 +1287,8 @@ getVectorBasisValues(const bool weighted,
       PHX::Device().fence();
 
     } else {
+
+      std::cout << "CALLING BasisValues2::getVectorBasisValues (non-uniform)" << std::endl;
 
       // This is ugly. The algorithm is restricted to host/serial due
       // to intrepid tools that requiring uniform reference
@@ -1431,6 +1440,8 @@ getGradBasisValues(const bool weighted,
 
     if(hasUniformReferenceSpace()){
 
+      std::cout << "CALLING BasisValues2::getGradBasisValues (uniform)" << std::endl;
+
       auto cubature_points_uniform_ref = PHX::getNonConstDynRankViewFromConstMDField(cubature_points_uniform_ref_);
 
       // Apply a single reference representation to all cells
@@ -1447,6 +1458,8 @@ getGradBasisValues(const bool weighted,
       PHX::Device().fence();
 
     } else {
+
+      std::cout << "CALLING BasisValues2::getGradBasisValues (non-uniform)" << std::endl;
 
       // This is ugly. The algorithm is restricted to host/serial due
       // to intrepid tools that requiring uniform reference
@@ -1724,6 +1737,8 @@ getCurlVectorBasis(const bool weighted,
 
     if(hasUniformReferenceSpace()){
 
+      std::cout << "CALLING BasisValues2::getCurlVectorBasis (uniform)" << std::endl;
+
       auto cubature_points_uniform_ref = PHX::getNonConstDynRankViewFromConstMDField(cubature_points_uniform_ref_);
 
       intrepid_basis->getValues(cell_curl_basis_ref_vector.get_view(),cubature_points_uniform_ref,Intrepid2::OPERATOR_CURL);
@@ -1738,6 +1753,8 @@ getCurlVectorBasis(const bool weighted,
       PHX::Device().fence();
 
     } else {
+
+      std::cout << "CALLING BasisValues2::getCurlVectorBasis (non-uniform)" << std::endl;
 
       // This is ugly. The algorithm is restricted to host/serial due
       // to intrepid tools that requiring uniform reference
@@ -1871,6 +1888,8 @@ getDivVectorBasis(const bool weighted,
 
     if(hasUniformReferenceSpace()){
 
+      std::cout << "CALLING BasisValues2::getDivVectorBasis (uniform)" << std::endl;
+
       auto cubature_points_uniform_ref = PHX::getNonConstDynRankViewFromConstMDField(cubature_points_uniform_ref_);
 
       intrepid_basis->getValues(cell_div_basis_ref.get_view(),cubature_points_uniform_ref,Intrepid2::OPERATOR_DIV);
@@ -1884,6 +1903,8 @@ getDivVectorBasis(const bool weighted,
       PHX::Device().fence();
 
     } else {
+
+      std::cout << "CALLING BasisValues2::getDivVectorBasis (non-uniform)" << std::endl;
 
       // This is ugly. The algorithm is restricted to host/serial due
       // to intrepid tools that requiring uniform reference

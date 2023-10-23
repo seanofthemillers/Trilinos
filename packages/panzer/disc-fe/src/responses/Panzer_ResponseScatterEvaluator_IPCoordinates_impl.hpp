@@ -66,12 +66,13 @@ template<typename EvalT, typename Traits>
 ResponseScatterEvaluator_IPCoordinates<EvalT,Traits>::
 ResponseScatterEvaluator_IPCoordinates(const std::string & name,
                                        int ir_order)
-  : responseName_(name), ir_order_(ir_order)
+  : responseName_(name), id_(ir_order,panzer::IntegrationDescriptor::VOLUME)
 {
   using Teuchos::RCP;
   using Teuchos::rcp;
 
   std::string dummyName = ResponseBase::buildLookupName(name) + " dummy target";
+
 
   // build dummy target tag
   RCP<PHX::DataLayout> dl_dummy = rcp(new PHX::MDALayout<panzer::Dummy>(0));
@@ -91,21 +92,11 @@ preEvaluate(typename Traits::PreEvalData d)
                                    d.gedc->getDataObject(ResponseBase::buildLookupName(responseName_)),true);
 }
 
-
-template<typename EvalT, typename Traits>
-void ResponseScatterEvaluator_IPCoordinates<EvalT,Traits>::
-postRegistrationSetup(typename Traits::SetupData sd,
-                      PHX::FieldManager<Traits>& /* fm */)
-{
-  ir_index_ = panzer::getIntegrationRuleIndex(ir_order_,(*sd.worksets_)[0], this->wda);
-}
-
 template<typename EvalT, typename Traits>
 void ResponseScatterEvaluator_IPCoordinates<EvalT,Traits>::
 evaluateFields(typename Traits::EvalData workset)
 {
-  // Kokkos::DynRankView<double,PHX::Device>& workset_coords = (this->wda(workset).int_rules[ir_index_])->ip_coordinates;
-  IntegrationValues2<double> & iv = *this->wda(workset).int_rules[ir_index_];
+  const auto & iv = this->wda(workset).getIntegrationValues(id_);
 
   if (tmpCoords_.size() != Teuchos::as<std::size_t>(iv.ip_coordinates.extent(2))) {
     tmpCoords_.resize(iv.ip_coordinates.extent(2));

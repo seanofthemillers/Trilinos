@@ -102,12 +102,14 @@ namespace partitioning_utilities
  *
  * \param[in] parent_info Reference to fully constructed LocalMeshInfoBase
  * \param[in] owned_parent_cells Vector of indexes (in parent's indexing scheme) for child to own
+ * \param[in] requires_connectivity Decides if connectivity is defined in the resulting output
  * \param[out] child_info Child which will be generated
  *
  */
 void
 setupSubLocalMeshInfo(const panzer::LocalMeshInfoBase & parent_info,
                       const std::vector<panzer::LocalOrdinal> & owned_parent_cells,
+                      const bool requires_connectivity,
                       panzer::LocalMeshInfoBase & child_info);
 }
 

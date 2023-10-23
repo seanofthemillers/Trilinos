@@ -151,15 +151,16 @@ template<typename EvalT, typename Traits>
 DOFGradient<EvalT, Traits>::
 DOFGradient(
   const Teuchos::ParameterList& p) :
-  use_descriptors_(false),
   dof_value( p.get<std::string>("Name"),
 	     p.get< Teuchos::RCP<panzer::BasisIRLayout> >("Basis")->functional),
   dof_gradient( p.get<std::string>("Gradient Name"),
-		p.get< Teuchos::RCP<panzer::IntegrationRule> >("IR")->dl_vector ),
-  basis_name(p.get< Teuchos::RCP<panzer::BasisIRLayout> >("Basis")->name())
+		p.get< Teuchos::RCP<panzer::IntegrationRule> >("IR")->dl_vector )
 {
   Teuchos::RCP<const PureBasis> basis
      = p.get< Teuchos::RCP<BasisIRLayout> >("Basis")->getBasis();
+  auto ir = p.get< Teuchos::RCP<panzer::IntegrationRule> >("IR");
+  bd_ = *basis;
+  id_ = *ir;
 
   // Verify that this basis supports the gradient operation
   TEUCHOS_TEST_FOR_EXCEPTION(!basis->supportsGrad(),std::logic_error,
@@ -179,8 +180,7 @@ DOFGradient(const PHX::FieldTag & input,
             const PHX::FieldTag & output,
             const panzer::BasisDescriptor & bd,
             const panzer::IntegrationDescriptor & id)
-  : use_descriptors_(true)
-  , bd_(bd)
+  : bd_(bd)
   , id_(id)
   , dof_value(input)
   , dof_gradient(output)
@@ -200,28 +200,15 @@ DOFGradient(const PHX::FieldTag & input,
 template<typename EvalT, typename Traits>
 void
 DOFGradient<EvalT, Traits>::
-postRegistrationSetup(
-  typename Traits::SetupData sd,
-  PHX::FieldManager<Traits>& /* fm */)
-{
-  if(not use_descriptors_)
-    basis_index = panzer::getBasisIndex(basis_name, (*sd.worksets_)[0], this->wda);
-}
-
-//**********************************************************************
-template<typename EvalT, typename Traits>
-void
-DOFGradient<EvalT, Traits>::
 evaluateFields(typename Traits::EvalData workset)
 {
   if (workset.num_cells == 0)
     return;
 
-  const panzer::BasisValues2<double> & basisValues = use_descriptors_ ?  this->wda(workset).getBasisValues(bd_,id_)
-                                                                      : *this->wda(workset).bases[basis_index];
+  const panzer::BasisValues2<double> & basisValues = this->wda(workset).getBasisValues(bd_,id_);
 
   using Array=typename panzer::BasisValues2<double>::ConstArray_CellBasisIPDim;
-  Array grad_basis = use_descriptors_ ? basisValues.getGradBasisValues(false) : Array(basisValues.grad_basis);
+  Array grad_basis = basisValues.getGradBasisValues(false);
 
   bool use_shared_memory = panzer::HP::inst().useSharedMemory<ScalarT>();
   evaluateGrad_withSens<ScalarT, Array> eval(dof_gradient,dof_value,grad_basis,use_shared_memory);

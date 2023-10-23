@@ -81,8 +81,9 @@ namespace panzer
       std::vector<std::string>() */)
     :
     evalStyle_(evalStyle),
+    bd_(*basis.getBasis()),
+    id_(ir),
     multiplier_(multiplier),
-    basisName_(basis.name()),
     use_shared_memory(false)
   {
     using PHX::View;
@@ -187,7 +188,6 @@ namespace panzer
     PHX::FieldManager<Traits>& /* fm */)
   {
     using Kokkos::createDynRankView;
-    using panzer::getBasisIndex;
 
     auto kokkosFieldMults_h = Kokkos::create_mirror_view(kokkosFieldMults_);
 
@@ -208,8 +208,6 @@ namespace panzer
       }
     }
 
-    // Determine the index in the Workset bases for our particular basis name.
-    basisIndex_ = getBasisIndex(basisName_, (*sd.worksets_)[0], this->wda);
   } // end of postRegistrationSetup()
 
   /////////////////////////////////////////////////////////////////////////////
@@ -398,7 +396,7 @@ namespace panzer
     using Kokkos::TeamPolicy;
 
     // Grab the basis information.
-    basis_ = this->wda(workset).bases[basisIndex_]->weighted_div_basis;
+    basis_ = this->wda(workset).getBasisValues(bd_,id_).getDivVectorBasis(true);
 
     use_shared_memory = panzer::HP::inst().useSharedMemory<ScalarT>();
 

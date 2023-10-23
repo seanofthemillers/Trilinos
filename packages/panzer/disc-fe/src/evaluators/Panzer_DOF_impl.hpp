@@ -67,26 +67,27 @@ namespace panzer {
 template<typename EvalT, typename TRAITS>
 DOF<EvalT, TRAITS>::
 DOF(const Teuchos::ParameterList & p) :
-  use_descriptors_(false),
   dof_basis( p.get<std::string>("Name"),
-	     p.get< Teuchos::RCP<BasisIRLayout> >("Basis")->functional),
-  basis_name(p.get< Teuchos::RCP<BasisIRLayout> >("Basis")->name())
+	     p.get< Teuchos::RCP<BasisIRLayout> >("Basis")->functional)
 {
   Teuchos::RCP<const PureBasis> basis
      = p.get< Teuchos::RCP<BasisIRLayout> >("Basis")->getBasis();
+  auto ir = p.get< Teuchos::RCP<panzer::IntegrationRule> >("IR");
   is_vector_basis = basis->isVectorBasis();
+  bd_ = *basis;
+  id_ = *ir;
 
   // swap between scalar basis value, or vector basis value
   if(basis->isScalarBasis()) {
      dof_ip_scalar = PHX::MDField<ScalarT,Cell,Point>(
-                p.get<std::string>("Name"),
-     	        p.get< Teuchos::RCP<panzer::IntegrationRule> >("IR")->dl_scalar);
+              p.get<std::string>("Name"),
+     	        ir->dl_scalar);
      this->addEvaluatedField(dof_ip_scalar);
   }
   else if(basis->isVectorBasis()) {
      dof_ip_vector = PHX::MDField<ScalarT,Cell,Point,Dim>(
-                p.get<std::string>("Name"),
-     	        p.get< Teuchos::RCP<panzer::IntegrationRule> >("IR")->dl_vector);
+              p.get<std::string>("Name"),
+     	        ir->dl_vector);
      this->addEvaluatedField(dof_ip_vector);
   }
   else
@@ -105,8 +106,7 @@ DOF(const PHX::FieldTag & input,
     const PHX::FieldTag & output,
     const panzer::BasisDescriptor & bd,
     const panzer::IntegrationDescriptor & id)
-  : use_descriptors_(true)
-  , bd_(bd)
+  : bd_(bd)
   , id_(id)
   , dof_basis(input)
 {
@@ -142,10 +142,6 @@ postRegistrationSetup(typename TRAITS::SetupData sd,
     this->utils.setFieldData(dof_ip_vector,fm);
   else
     this->utils.setFieldData(dof_ip_scalar,fm);
-
-  // descriptors don't access the basis values in the same way
-  if(not use_descriptors_)
-    basis_index = panzer::getBasisIndex(basis_name, (*sd.worksets_)[0], this->wda);
 }
 
 //**********************************************************************
@@ -153,15 +149,14 @@ template<typename EvalT, typename TRAITS>
 void DOF<EvalT, TRAITS>::
 evaluateFields(typename TRAITS::EvalData workset)
 {
-  const panzer::BasisValues2<double> & basisValues = use_descriptors_ ?  this->wda(workset).getBasisValues(bd_,id_)
-                                                                      : *this->wda(workset).bases[basis_index];
+  const panzer::BasisValues2<double> & basisValues = this->wda(workset).getBasisValues(bd_,id_);
 
   const auto policy = panzer::HP::inst().teamPolicy<ScalarT,PHX::exec_space>(workset.num_cells);
   const bool use_shared_memory = panzer::HP::inst().useSharedMemory<ScalarT>();
 
   if(is_vector_basis) {
     using Array=typename BasisValues2<double>::ConstArray_CellBasisIPDim;
-    Array array = use_descriptors_ ? basisValues.getVectorBasisValues(false) : Array(basisValues.basis_vector);
+    Array array = basisValues.getVectorBasisValues(false);
     const int spaceDim  = array.extent(3);
     if(spaceDim==3) {
       dof_functors::EvaluateDOFWithSens_Vector<ScalarT,Array,3> functor(dof_basis.get_static_view(),dof_ip_vector.get_static_view(),array,use_shared_memory);
@@ -175,7 +170,7 @@ evaluateFields(typename TRAITS::EvalData workset)
   }
   else {
     using Array=typename BasisValues2<double>::ConstArray_CellBasisIP;
-    Array interpolation_array = use_descriptors_ ? basisValues.getBasisValues(false) : Array(basisValues.basis_scalar);
+    Array interpolation_array = basisValues.getBasisValues(false);
     dof_functors::EvaluateDOFWithSens_Scalar<ScalarT,Array> functor(dof_basis,dof_ip_scalar,interpolation_array);
     Kokkos::parallel_for(workset.num_cells,functor);
   }
@@ -191,14 +186,15 @@ evaluateFields(typename TRAITS::EvalData workset)
 template<typename TRAITS>
 DOF<typename TRAITS::Jacobian, TRAITS>::
 DOF(const Teuchos::ParameterList & p) :
-  use_descriptors_(false),
   dof_basis( p.get<std::string>("Name"),
-	     p.get< Teuchos::RCP<BasisIRLayout> >("Basis")->functional),
-  basis_name(p.get< Teuchos::RCP<BasisIRLayout> >("Basis")->name())
+	     p.get< Teuchos::RCP<BasisIRLayout> >("Basis")->functional)
 {
   Teuchos::RCP<const PureBasis> basis
      = p.get< Teuchos::RCP<BasisIRLayout> >("Basis")->getBasis();
+  auto ir = p.get< Teuchos::RCP<panzer::IntegrationRule> >("IR");
   is_vector_basis = basis->isVectorBasis();
+  bd_ = *basis;
+  id_ = *ir;
 
   if(p.isType<Teuchos::RCP<const std::vector<int> > >("Jacobian Offsets Vector")) {
     const std::vector<int> & offsets = *p.get<Teuchos::RCP<const std::vector<int> > >("Jacobian Offsets Vector");
@@ -224,13 +220,13 @@ DOF(const Teuchos::ParameterList & p) :
   if(basis->isScalarBasis()) {
      dof_ip_scalar = PHX::MDField<ScalarT,Cell,Point>(
                 p.get<std::string>("Name"),
-     	        p.get< Teuchos::RCP<panzer::IntegrationRule> >("IR")->dl_scalar);
+     	        ir->dl_scalar);
      this->addEvaluatedField(dof_ip_scalar);
   }
   else if(basis->isVectorBasis()) {
      dof_ip_vector = PHX::MDField<ScalarT,Cell,Point,Dim>(
                 p.get<std::string>("Name"),
-     	        p.get< Teuchos::RCP<panzer::IntegrationRule> >("IR")->dl_vector);
+     	        ir->dl_vector);
      this->addEvaluatedField(dof_ip_vector);
   }
   else
@@ -251,8 +247,7 @@ DOF(const PHX::FieldTag & input,
     const PHX::FieldTag & output,
     const panzer::BasisDescriptor & bd,
     const panzer::IntegrationDescriptor & id)
-  : use_descriptors_(true)
-  , bd_(bd)
+  : bd_(bd)
   , id_(id)
   , dof_basis(input)
 {
@@ -290,10 +285,6 @@ postRegistrationSetup(typename TRAITS::SetupData sd,
     this->utils.setFieldData(dof_ip_vector,fm);
   else
     this->utils.setFieldData(dof_ip_scalar,fm);
-
-  // descriptors don't access the basis values in the same way
-  if(not use_descriptors_)
-    basis_index = panzer::getBasisIndex(basis_name, (*sd.worksets_)[0], this->wda);
 }
 
 // **********************************************************************
@@ -314,13 +305,12 @@ template<typename TRAITS>
 void DOF<typename TRAITS::Jacobian, TRAITS>::
 evaluateFields(typename TRAITS::EvalData workset)
 {
-  const panzer::BasisValues2<double> & basisValues = use_descriptors_ ?  this->wda(workset).getBasisValues(bd_,id_)
-                                                                      : *this->wda(workset).bases[basis_index];
+  const panzer::BasisValues2<double> & basisValues = this->wda(workset).getBasisValues(bd_,id_);
 
   if(is_vector_basis) {
     if(accelerate_jacobian) {
       using Array=typename BasisValues2<double>::ConstArray_CellBasisIPDim;
-      Array array = use_descriptors_ ? basisValues.getVectorBasisValues(false) : Array(basisValues.basis_vector);
+      Array array = basisValues.getVectorBasisValues(false);
       const int spaceDim  = array.extent(3);
       if(spaceDim==3) {
         dof_functors::EvaluateDOFFastSens_Vector<ScalarT,Array,3> functor(dof_basis,dof_ip_vector,offsets_array,array);
@@ -335,7 +325,7 @@ evaluateFields(typename TRAITS::EvalData workset)
       const bool use_shared_memory = panzer::HP::inst().useSharedMemory<ScalarT>();
       const auto policy = panzer::HP::inst().teamPolicy<ScalarT,PHX::exec_space>(workset.num_cells);
       using Array=typename BasisValues2<double>::ConstArray_CellBasisIPDim;
-      Array array = use_descriptors_ ? basisValues.getVectorBasisValues(false) : Array(basisValues.basis_vector);
+      Array array = basisValues.getVectorBasisValues(false);
       const int spaceDim  = array.extent(3);
       if(spaceDim==3) {
         dof_functors::EvaluateDOFWithSens_Vector<ScalarT,Array,3> functor(dof_basis.get_static_view(),dof_ip_vector.get_static_view(),array,use_shared_memory);
@@ -349,7 +339,7 @@ evaluateFields(typename TRAITS::EvalData workset)
   }
   else {
     using Array=typename BasisValues2<double>::ConstArray_CellBasisIP;
-    Array array = use_descriptors_ ? basisValues.getBasisValues(false) : Array(basisValues.basis_scalar);
+    Array array = basisValues.getBasisValues(false);
     if(accelerate_jacobian) {
       dof_functors::EvaluateDOFFastSens_Scalar<ScalarT,Array> functor(dof_basis,dof_ip_scalar,offsets_array,array);
       Kokkos::parallel_for(workset.num_cells,functor);

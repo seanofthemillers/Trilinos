@@ -64,24 +64,14 @@ fieldName(const std::string & basisName)
 
 template<typename EvalT,typename TRAITS>
 panzer::GatherBasisCoordinates<EvalT, TRAITS>::
-GatherBasisCoordinates(const panzer::PureBasis & basis)
+GatherBasisCoordinates(const panzer::PureBasis & basis):
+  bd_(basis)
 { 
-  basisName_ = basis.name();
-
-  basisCoordinates_ = PHX::MDField<ScalarT,Cell,BASIS,Dim>(fieldName(basisName_),basis.coordinates);
+  basisCoordinates_ = PHX::MDField<ScalarT,Cell,BASIS,Dim>(fieldName(basis.name()),basis.coordinates);
 
   this->addEvaluatedField(basisCoordinates_);
 
-  this->setName("Gather "+fieldName(basisName_));
-}
-
-// **********************************************************************
-template<typename EvalT,typename TRAITS>
-void panzer::GatherBasisCoordinates<EvalT, TRAITS>::
-postRegistrationSetup(typename TRAITS::SetupData sd, 
-		      PHX::FieldManager<TRAITS>& /* fm */)
-{
-  basisIndex_ = panzer::getPureBasisIndex(basisName_, (*sd.worksets_)[0], this->wda);
+  this->setName("Gather "+fieldName(basis.name()));
 }
 
 // **********************************************************************
@@ -89,12 +79,9 @@ template<typename EvalT,typename TRAITS>
 void panzer::GatherBasisCoordinates<EvalT, TRAITS>::
 evaluateFields(typename TRAITS::EvalData workset)
 { 
-  // const Kokkos::DynRankView<double,PHX::Device> & basisCoords = this->wda(workset).bases[basisIndex_]->basis_coordinates;  
-  const Teuchos::RCP<const BasisValues2<double> > bv = this->wda(workset).bases[basisIndex_];
-
   // just copy the array
   auto d_basisCoordinates = basisCoordinates_.get_static_view();
-  auto s_basis_coordinates = bv->basis_coordinates.get_static_view();
+  auto s_basis_coordinates = this->wda(workset).getBasisValues(bd_).getBasisCoordinates().get_static_view();
   Kokkos::parallel_for("GatherBasisCoords",s_basis_coordinates.extent_int(0), KOKKOS_LAMBDA(int i) {
     for(int j=0;j<s_basis_coordinates.extent_int(1);j++)
       for(int k=0;k<s_basis_coordinates.extent_int(2);k++)

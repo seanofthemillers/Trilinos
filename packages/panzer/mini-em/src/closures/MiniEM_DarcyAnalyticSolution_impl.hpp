@@ -19,14 +19,14 @@ template <typename EvalT,typename Traits>
 DarcyAnalyticSolution<EvalT,Traits>::DarcyAnalyticSolution(const std::string & name,
                                            const panzer::IntegrationRule & ir,
                                            const panzer::FieldLayoutLibrary & fl,
-                                           const std::string& basisName)
+                                           const std::string& basisName):
+  id_(ir)
 {
   using Teuchos::RCP;
 
   Teuchos::RCP<const panzer::PureBasis> basis = fl.lookupBasis(basisName);
 
   Teuchos::RCP<PHX::DataLayout> data_layout = ir.dl_scalar;
-  ir_degree = ir.cubature_degree;
   ir_dim = ir.spatial_dimension;
 
   source = PHX::MDField<ScalarT,Cell,Point>(name, data_layout);
@@ -39,20 +39,12 @@ DarcyAnalyticSolution<EvalT,Traits>::DarcyAnalyticSolution(const std::string & n
 
 //**********************************************************************
 template <typename EvalT,typename Traits>
-void DarcyAnalyticSolution<EvalT,Traits>::postRegistrationSetup(typename Traits::SetupData sd,
-                                                                PHX::FieldManager<Traits>& /* fm */)
-{
-  ir_index = panzer::getIntegrationRuleIndex(ir_degree,(*sd.worksets_)[0], this->wda);
-}
-
-//**********************************************************************
-template <typename EvalT,typename Traits>
 void DarcyAnalyticSolution<EvalT,Traits>::evaluateFields(typename Traits::EvalData workset)
 {
   double time = workset.time;
   const auto pi = Kokkos::numbers::pi_v<double>;
 
-  const auto coords = workset.int_rules[ir_index]->ip_coordinates.get_static_view();
+  const auto coords = workset.getIntegrationValues(id_).getCubaturePoints().get_static_view();
   auto tmp_source = source.get_static_view();
 
   if (ir_dim == 3) {

@@ -70,6 +70,8 @@ NeumannResidual(
   const Teuchos::RCP<const panzer::IntegrationRule> ir = 
     p.get< Teuchos::RCP<const panzer::IntegrationRule> >("IR");
 
+  bd_ = *basis;
+  id_ = *ir;
 
   residual = PHX::MDField<ScalarT>(residual_name, basis->functional);
   normal_dot_flux = PHX::MDField<ScalarT>(normal_dot_flux_name, ir->dl_scalar);
@@ -80,8 +82,6 @@ NeumannResidual(
   this->addEvaluatedField(normal_dot_flux);
   this->addDependentField(normal);
   this->addDependentField(flux);
- 
-  basis_name = panzer::basisIRLayout(basis,*ir)->name();
 
   std::string n = "Neumann Residual Evaluator";
   this->setName(n);
@@ -101,7 +101,6 @@ postRegistrationSetup(
   TEUCHOS_ASSERT(flux.extent(1) == normal.extent(1));
   TEUCHOS_ASSERT(flux.extent(2) == normal.extent(2));
 
-  basis_index = panzer::getBasisIndex(basis_name, (*sd.worksets_)[0], this->wda);
 }
 
 //**********************************************************************
@@ -127,7 +126,7 @@ evaluateFields(
       }
     });
 
-  auto weighted_basis_scalar = this->wda(workset).bases[basis_index]->weighted_basis_scalar.get_static_view();
+  auto weighted_basis_scalar = this->wda(workset).getBasisValues(bd_,id_).getBasisValues(true).get_static_view();
   auto residual_v = residual.get_static_view();
   Kokkos::parallel_for("NeumannResidual", workset.num_cells, KOKKOS_LAMBDA (const index_t cell) {
     for (std::size_t basis = 0; basis < residual_v.extent(1); ++basis) {
@@ -144,7 +143,7 @@ evaluateFields(
   //   Intrepid2::FunctionSpaceTools<PHX::exec_space>::
   //     integrate<ScalarT>(residual.get_view(),
   //                        normal_dot_flux.get_view(), 
-  //                        (this->wda(workset).bases[basis_index])->weighted_basis_scalar.get_view());
+  //                        weighted_basis_scalar.get_view());
 
   Kokkos::fence();
 

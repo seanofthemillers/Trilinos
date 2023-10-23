@@ -67,7 +67,7 @@ TEUCHOS_UNIT_TEST(setupSubLocalMeshInfo, basic)
     std::vector<panzer::LocalOrdinal> local_cells = {0};
     panzer::LocalMeshInfoBase sub_mesh;
 
-    TEST_THROW(partitioning_utilities::setupSubLocalMeshInfo(*mesh,local_cells,sub_mesh),std::logic_error);
+    TEST_THROW(partitioning_utilities::setupSubLocalMeshInfo(*mesh,local_cells,true,sub_mesh),std::logic_error);
   }
 
   // Make sure passing the function an empty set of cells throws an error
@@ -76,7 +76,23 @@ TEUCHOS_UNIT_TEST(setupSubLocalMeshInfo, basic)
     std::vector<panzer::LocalOrdinal> local_cells = {};
     panzer::LocalMeshInfoBase sub_mesh;
 
-    TEST_THROW(partitioning_utilities::setupSubLocalMeshInfo(*mesh,local_cells,sub_mesh),std::logic_error);
+    TEST_THROW(partitioning_utilities::setupSubLocalMeshInfo(*mesh,local_cells,true,sub_mesh),std::logic_error);
+  }
+
+  // Make sure that we can take a valid mesh 
+  {
+    Teuchos::RCP<panzer::LocalMeshInfoBase> mesh = generateLocalMeshInfoBase();
+
+    // Skip cell 1 to make it a ghost cell
+    std::vector<panzer::LocalOrdinal> n_local_cells = {0,2};
+    panzer::LocalMeshInfoBase sub_mesh;
+
+    partitioning_utilities::setupSubLocalMeshInfo(*mesh,n_local_cells,false,sub_mesh);
+
+    TEST_EQUALITY(sub_mesh.num_owned_cells,2);
+    TEST_EQUALITY(sub_mesh.num_ghstd_cells,0);
+    TEST_EQUALITY(sub_mesh.num_virtual_cells,0);
+    TEST_FALSE(sub_mesh.has_connectivity);
   }
 
   // Make sure that we can grab a couple of the cells as a local mesh
@@ -87,11 +103,12 @@ TEUCHOS_UNIT_TEST(setupSubLocalMeshInfo, basic)
     std::vector<panzer::LocalOrdinal> n_local_cells = {0,2};
     panzer::LocalMeshInfoBase sub_mesh;
 
-    partitioning_utilities::setupSubLocalMeshInfo(*mesh,n_local_cells,sub_mesh);
+    partitioning_utilities::setupSubLocalMeshInfo(*mesh,n_local_cells,true,sub_mesh);
 
     TEST_EQUALITY(sub_mesh.num_owned_cells,2);
     TEST_EQUALITY(sub_mesh.num_ghstd_cells,2);
     TEST_EQUALITY(sub_mesh.num_virtual_cells,1);
+    TEST_TRUE(sub_mesh.has_connectivity);
 
     // The following is just an analysis of the sub mesh
     // If any of these fail after changing the setupSubLocalMeshInfo call, it may not be because the changes were wrong.

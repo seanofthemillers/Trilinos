@@ -80,7 +80,6 @@ private:
 
   typedef typename EvalT::ScalarT ScalarT;
 
-  bool use_descriptors_;
   panzer::BasisDescriptor bd_;
   panzer::IntegrationDescriptor id_;
 
@@ -89,8 +88,6 @@ private:
   PHX::MDField<ScalarT,Cell,Point> dof_curl_scalar;
   PHX::MDField<ScalarT,Cell,Point,Dim> dof_curl_vector;
 
-  std::string basis_name;
-  std::size_t basis_index;
   int basis_dimension;
 };
 
@@ -118,7 +115,6 @@ private:
 
   typedef panzer::Traits::Jacobian::ScalarT ScalarT;
 
-  bool use_descriptors_;
   panzer::BasisDescriptor bd_;
   panzer::IntegrationDescriptor id_;
 
@@ -130,8 +126,6 @@ private:
   PHX::View<const int*> offsets_array;
   std::vector<int> offsets;
 
-  std::string basis_name;
-  std::size_t basis_index;
   int basis_dimension;
 
   bool accelerate_jacobian;

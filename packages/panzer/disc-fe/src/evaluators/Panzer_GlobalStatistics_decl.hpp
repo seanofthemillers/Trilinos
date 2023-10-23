@@ -106,8 +106,7 @@ class GlobalStatistics
   std::vector<ScalarT> global_maxs;
   std::vector<ScalarT> global_mins;
 
-  int ir_order;
-  std::size_t ir_index;
+  panzer::IntegrationDescriptor id_;
 
   Teuchos::RCP<const Teuchos::Comm<int> > comm;
 

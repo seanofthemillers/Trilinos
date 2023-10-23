@@ -52,6 +52,7 @@
 #include "Panzer_Dimension.hpp"
 #include "Panzer_Traits.hpp"
 #include "Panzer_CloneableEvaluator.hpp"
+#include "Panzer_IntegrationDescriptor.hpp"
 
 #include "Panzer_PureBasis.hpp"
 
@@ -70,9 +71,6 @@ public:
   
   GatherIntegrationCoordinates(const panzer::IntegrationRule & quad);
   
-  void postRegistrationSetup(typename TRAITS::SetupData d,
-			     PHX::FieldManager<TRAITS>& vm);
-  
   void evaluateFields(typename TRAITS::EvalData d);
 
   static std::string fieldName(int degree);
@@ -80,8 +78,7 @@ public:
 private:
   typedef typename EvalT::ScalarT ScalarT;
 
-  int quadDegree_;
-  std::vector<int>::size_type quadIndex_; 
+  panzer::IntegrationDescriptor id_;
   PHX::MDField<ScalarT,Cell,Point,Dim> quadCoordinates_;
 
   GatherIntegrationCoordinates();

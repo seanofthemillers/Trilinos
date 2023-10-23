@@ -181,7 +181,7 @@ setupLocalMeshBlockInfo(const panzer_stk::STK_Interface & mesh,
   block_info.cell_topology = mesh.getCellTopology(element_block_name);
   {
     PANZER_FUNC_TIME_MONITOR("panzer::partitioning_utilities::setupSubLocalMeshInfo");
-    panzer::partitioning_utilities::setupSubLocalMeshInfo(mesh_info, owned_block_cells, block_info);
+    panzer::partitioning_utilities::setupSubLocalMeshInfo(mesh_info, owned_block_cells, true, block_info);
   }
 }
 

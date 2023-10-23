@@ -98,8 +98,6 @@ class CellAverage
   double multiplier;
 
   std::size_t num_qp;
-  std::size_t quad_index;
-  int quad_order;
  
 public:
   // for testing purposes

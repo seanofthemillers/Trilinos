@@ -74,6 +74,7 @@ GlobalStatistics(
   panzer::StringTokenizer(names, names_string);
 
   Teuchos::RCP<panzer::IntegrationRule> ir = p.get< Teuchos::RCP<panzer::IntegrationRule> >("IR");
+  id_ = *ir;
 
   field_values.clear();
   for (typename std::vector<std::string>::const_iterator name = names.begin(); name != names.end(); ++name)
@@ -100,8 +101,6 @@ GlobalStatistics(
   global_mins.resize(field_values.size());
   global_averages.resize(field_values.size());
 
-  ir_order = ir->cubature_degree;
-
   std::string n = "GlobalStatistics: " + names_string;
   this->setName(n);
 }
@@ -114,7 +113,6 @@ postRegistrationSetup(
   typename Traits::SetupData sd,
   PHX::FieldManager<Traits>& /* fm */)
 {
-  ir_index = panzer::getIntegrationRuleIndex(ir_order,(*sd.worksets_)[0], this->wda);
   auto l_ones = ones.get_static_view();
   Kokkos::parallel_for("GlobalStatistics", l_ones.extent(0), KOKKOS_LAMBDA(int cell) {
       for (std::size_t ip = 0; ip < l_ones.extent(1); ++ip)
@@ -132,9 +130,11 @@ evaluateFields(
   if (workset.num_cells == 0)
     return;
 
+  auto weighted_measure = this->wda(workset).getIntegrationValues(id_).getWeightedMeasure();
+
   Intrepid2::FunctionSpaceTools<PHX::Device::execution_space>::integrate(volumes.get_view(),
                                                                          ones.get_view(), 
-                                                                         (this->wda(workset).int_rules[ir_index])->weighted_measure.get_view());
+                                                                         weighted_measure.get_view());
   auto volumes_h = Kokkos::create_mirror_view(as_view(volumes));
   Kokkos::deep_copy(volumes_h, as_view(volumes));
 
@@ -147,7 +147,7 @@ evaluateFields(
     
     Intrepid2::FunctionSpaceTools<PHX::Device::execution_space>::integrate(tmp.get_view(),
                                                                            field->get_view(), 
-                                                                           (this->wda(workset).int_rules[ir_index])->weighted_measure.get_view());
+                                                                           weighted_measure.get_view());
     auto tmp_h = Kokkos::create_mirror_view(tmp.get_static_view());
     auto field_h = Kokkos::create_mirror_view( field->get_static_view());
     Kokkos::deep_copy(tmp_h, tmp.get_static_view());

@@ -33,9 +33,6 @@ public:
                   const panzer::FieldLayoutLibrary & fl,
                   const std::string& basisName="u");
 
-    void postRegistrationSetup(typename Traits::SetupData d,
-                               PHX::FieldManager<Traits>& fm);
-
     void evaluateFields(typename Traits::EvalData d);
 
 
@@ -44,7 +41,8 @@ private:
 
   // Simulation source
   PHX::MDField<ScalarT,Cell,Point> source;
-  int ir_degree, ir_index, ir_dim;
+  panzer::IntegrationDescriptor id_;
+  int ir_dim;
 
   using device_type = PHX::Device;
 };

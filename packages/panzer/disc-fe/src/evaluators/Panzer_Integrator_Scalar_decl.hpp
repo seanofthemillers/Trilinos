@@ -98,8 +98,7 @@ class Integrator_Scalar
   PHX::View<PHX::UnmanagedView<const ScalarT**>* > field_multipliers;
 
   std::size_t num_qp;
-  std::size_t quad_index;
-  int quad_order;
+  panzer::IntegrationDescriptor id_;
 
   double multiplier;
 

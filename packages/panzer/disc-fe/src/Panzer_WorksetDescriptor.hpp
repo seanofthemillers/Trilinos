@@ -265,6 +265,11 @@ public:
 
   bool applyOrientations() const {return applyOrientations_;}
 
+
+  //! DO NOT USE - THIS WILL CAUSE MAJOR ISSUES IF USED INCORRECTLY
+  void setWorksetSize(int workset_size)
+  { worksetSize_ = workset_size; }
+
 private:
 
   //! Element block, required to be non-empty

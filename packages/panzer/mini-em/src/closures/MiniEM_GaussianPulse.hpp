@@ -35,19 +35,16 @@ public:
                   const panzer::IntegrationRule & ir,
                   const panzer::FieldLayoutLibrary & fl,
                   const double & dt);
-
-    void postRegistrationSetup(typename Traits::SetupData d,
-                               PHX::FieldManager<Traits>& fm);
                                                                         
     void evaluateFields(typename Traits::EvalData d);               
-
 
 private:
   typedef typename EvalT::ScalarT ScalarT;
 
   // Simulation source
   PHX::MDField<ScalarT,Cell,Point,Dim> current;
-  int ir_degree, ir_index, ir_dim;
+  panzer::IntegrationDescriptor id_;
+  int ir_dim;
   double alpha, beta;
 };
 

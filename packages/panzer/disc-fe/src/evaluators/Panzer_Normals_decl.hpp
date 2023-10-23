@@ -92,7 +92,7 @@ class Normals
     using ScalarT = typename EvalT::ScalarT;
 
   int side_id;
-  int quad_order, quad_index;
+  panzer::IntegrationDescriptor id_;
 
   std::size_t num_qp, num_dim;
 

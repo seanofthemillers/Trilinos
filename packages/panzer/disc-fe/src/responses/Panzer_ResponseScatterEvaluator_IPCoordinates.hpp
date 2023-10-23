@@ -69,9 +69,6 @@ public:
   //! A constructor with concrete arguments instead of a parameter list.
   ResponseScatterEvaluator_IPCoordinates(const std::string & name,int ir_order);
 
-  void postRegistrationSetup(typename Traits::SetupData d,
-                             PHX::FieldManager<Traits>& fm);
-
   void evaluateFields(typename Traits::EvalData d);
 
   void preEvaluate(typename Traits::PreEvalData d);
@@ -81,8 +78,7 @@ private:
   typedef typename EvalT::ScalarT ScalarT;
 
   std::string responseName_;
-  int ir_order_;
-  int ir_index_;
+  panzer::IntegrationDescriptor id_;
 
   Teuchos::RCP<Response_IPCoordinates<EvalT> > responseObj_;
   std::vector<std::vector<ScalarT> > tmpCoords_;

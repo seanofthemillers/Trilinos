@@ -81,10 +81,11 @@ namespace panzer
     const Teuchos::RCP<PHX::DataLayout>& vecDL       /* = Teuchos::null */)
     :
     evalStyle_(evalStyle),
+    bd_(*basis.getBasis()),
+    id_(ir),
     multiplier_(multiplier),
     numDims_(resNames.size()),
-    numGradDims_(ir.dl_vector->extent(2)),
-    basisName_(basis.name())
+    numGradDims_(ir.dl_vector->extent(2))
   {
     using PHX::View;
     using panzer::BASIS;
@@ -222,7 +223,6 @@ namespace panzer
     PHX::FieldManager<Traits>& /* fm */)
   {
     using Kokkos::createDynRankView;
-    using panzer::getBasisIndex;
 
     // Get the PHX::Views of the fields.
     auto fields_host_mirror_ = Kokkos::create_mirror_view(fields_);
@@ -237,8 +237,6 @@ namespace panzer
       field_mults_host_mirror_(i) = fieldMults_[i].get_static_view();
     Kokkos::deep_copy(kokkosFieldMults_,field_mults_host_mirror_);
 
-    // Determine the index in the Workset bases for our particular basis name.
-    basisIndex_ = getBasisIndex(basisName_, (*sd.worksets_)[0], this->wda);
   } // end of postRegistrationSetup()
 
   /////////////////////////////////////////////////////////////////////////////
@@ -461,7 +459,7 @@ namespace panzer
     using Kokkos::RangePolicy;
 
     // Grab the basis information.
-    basis_ = this->wda(workset).bases[basisIndex_]->weighted_grad_basis;
+    basis_ = this->wda(workset).getBasisValues(bd_,id_).getGradBasisValues(true);
 
     // The following if-block is for the sake of optimization depending on the
     // number of field multipliers.  The parallel_fors will loop over the cells

@@ -57,6 +57,7 @@ using Teuchos::rcp;
 #include "PanzerDiscFE_config.hpp"
 #include "Panzer_IntegrationRule.hpp"
 #include "Panzer_CellData.hpp"
+#include "Panzer_LocalMeshInfo.hpp"
 #include "Panzer_Workset.hpp"
 #include "Panzer_Traits.hpp"
 #include "Panzer_CommonArrayFactories.hpp"
@@ -90,41 +91,45 @@ TEUCHOS_UNIT_TEST_TEMPLATE_1_DECL(normals,test2d,EvalType)
   // build a dummy workset
   //////////////////////////////////////////////////////////
   // typedef Kokkos::DynRankView<double,PHX::Device> FieldArray;
-  int numCells = 2, numVerts = 4, dim = 2;
-  Teuchos::RCP<panzer::Workset> workset = Teuchos::rcp(new panzer::Workset);
-  MDFieldArrayFactory af("",true);
-  workset->cell_node_coordinates = af.buildStaticArray<double,Cell,NODE,Dim>("coords",numCells,numVerts,dim);
-  Workset::CellCoordArray coords = workset->cell_node_coordinates;
+  int numCells = 2, numVerts = 4, dim = 2, side=1;
+  auto topo = Teuchos::rcp(new shards::CellTopology(shards::getCellTopologyData< shards::Quadrilateral<4> >()));
+  auto worksets = Teuchos::rcp(new std::vector<panzer::Workset>());
+  {
+   panzer::LocalMeshPartition partition;
+   partition.num_owned_cells = numCells;
+   partition.num_ghstd_cells = partition.num_virtual_cells = 0;
+   partition.subcell_dimension = dim-1;
+   partition.subcell_index = side;
+   partition.local_cells = PHX::View<panzer::LocalOrdinal*>("local_cells",numCells);
+   partition.global_cells = PHX::View<panzer::GlobalOrdinal*>("global_cells",numCells);
+   partition.cell_nodes = PHX::View<double***>("cell_nodes",numCells,numVerts,dim);
+   partition.cell_topology = topo;
 
-  Kokkos::parallel_for(1, KOKKOS_LAMBDA (int) {
-      coords(0,0,0) = 1.0; coords(0,0,1) = 0.0;
-      coords(0,1,0) = 1.0; coords(0,1,1) = 1.0;
-      coords(0,2,0) = 0.0; coords(0,2,1) = 1.0;
-      coords(0,3,0) = 0.0; coords(0,3,1) = 0.0;
+   auto & coords = partition.cell_nodes;
+   Kokkos::parallel_for(1, KOKKOS_LAMBDA (int) {
+         coords(0,0,0) = 1.0; coords(0,0,1) = 0.0;
+         coords(0,1,0) = 1.0; coords(0,1,1) = 1.0;
+         coords(0,2,0) = 0.0; coords(0,2,1) = 1.0;
+         coords(0,3,0) = 0.0; coords(0,3,1) = 0.0;
 
-      coords(1,0,0) = 1.0; coords(1,0,1) = 1.0;
-      coords(1,1,0) = 2.0; coords(1,1,1) = 2.0;
-      coords(1,2,0) = 1.0; coords(1,2,1) = 3.0;
-      coords(1,3,0) = 0.0; coords(1,3,1) = 2.0;
-    });
+         coords(1,0,0) = 1.0; coords(1,0,1) = 1.0;
+         coords(1,1,0) = 2.0; coords(1,1,1) = 2.0;
+         coords(1,2,0) = 1.0; coords(1,2,1) = 3.0;
+         coords(1,3,0) = 0.0; coords(1,3,1) = 2.0;
+      });
 
-  Teuchos::RCP<shards::CellTopology> topo =
-     Teuchos::rcp(new shards::CellTopology(shards::getCellTopologyData< shards::Quadrilateral<4> >()));
+   panzer::WorksetOptions options;
+   options.side_assembly_ = true;
+      
+   worksets->push_back(panzer::Workset());
+   worksets->back().setup(partition, options);
+  }
+
 
   int quadOrder = 5;
-  panzer::CellData cellData(2,1,topo);
+  panzer::CellData cellData(numCells,side,topo);
   Teuchos::RCP<panzer::IntegrationRule> quadRule = Teuchos::rcp(new panzer::IntegrationRule(quadOrder,cellData));
   out << "num quad points = " << quadRule->num_points << std::endl;
-  Teuchos::RCP<panzer::IntegrationValues2<double> > quadValues = Teuchos::rcp(new panzer::IntegrationValues2<double>("",true));
-  quadValues->setupArrays(quadRule);
-  quadValues->evaluateValues(coords);
-
-  workset->cell_local_ids.push_back(0); workset->cell_local_ids.push_back(1);
-  workset->num_cells = numCells;
-  workset->block_id = "eblock-0_0";
-  workset->ir_degrees = Teuchos::rcp(new std::vector<int>);
-  workset->ir_degrees->push_back(quadRule->cubature_degree);
-  workset->int_rules.push_back(quadValues);
 
   Teuchos::RCP<PHX::FieldManager<panzer::Traits> > fm
      = Teuchos::rcp(new PHX::FieldManager<panzer::Traits>);
@@ -135,7 +140,7 @@ TEUCHOS_UNIT_TEST_TEMPLATE_1_DECL(normals,test2d,EvalType)
      Teuchos::ParameterList p;
      p.set("Name","Norms");
      p.set("IR",quadRule);
-     p.set("Side ID",1);
+     p.set("Side ID",side);
 
      RCP<panzer::Normals<EvalType,panzer::Traits> > normEval
         = rcp(new panzer::Normals<EvalType,panzer::Traits>(p));
@@ -151,11 +156,7 @@ TEUCHOS_UNIT_TEST_TEMPLATE_1_DECL(normals,test2d,EvalType)
   PHX::MDField<typename EvalType::ScalarT,panzer::Cell,panzer::Point,panzer::Dim> & normals = *normalsPtr;
 
   panzer::Traits::SD setupData;
-  {
-    auto worksets = rcp(new std::vector<panzer::Workset>);
-    worksets->push_back(*workset);
-    setupData.worksets_ = worksets;
-  }
+  setupData.worksets_ = worksets;
 
   std::vector<PHX::index_size_type> derivative_dimensions;
   derivative_dimensions.push_back(4);
@@ -167,7 +168,7 @@ TEUCHOS_UNIT_TEST_TEMPLATE_1_DECL(normals,test2d,EvalType)
 
   panzer::Traits::PED preEvalData;
   fm->preEvaluate<EvalType>(preEvalData);
-  fm->evaluateFields<EvalType>(*workset);
+  fm->evaluateFields<EvalType>((*worksets)[0]);
   fm->postEvaluate<EvalType>(0);
 
   fm->getFieldData<EvalType>(normals);
