@@ -20,8 +20,8 @@
 #include <type_traits>
 
 #ifdef KOKKOSKERNELS_ENABLE_TPL_ROCSPARSE
-#include <rocm_version.h>
-#include "rocsparse/rocsparse.h"
+#include <rocm-core/rocm_version.h>
+#include <rocsparse/rocsparse.h>
 
 namespace KokkosSparse {
 namespace Impl {
