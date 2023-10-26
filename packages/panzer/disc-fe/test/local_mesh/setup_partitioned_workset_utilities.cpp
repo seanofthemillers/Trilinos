@@ -65,24 +65,25 @@
 
 namespace panzer {
 
-TEUCHOS_UNIT_TEST(setupPartitionedWorksetUtilities, basic)
+TEUCHOS_UNIT_TEST(setupPartitionedWorksetUtilities, empty_mesh)
 {
 
   // Test empty mesh
-  {
-    panzer::LocalMeshInfo empty_mesh;
+  panzer::LocalMeshInfo empty_mesh;
 
-    panzer::WorksetDescriptor description("block",panzer::WorksetSizeType::ALL_ELEMENTS,true);
+  panzer::WorksetDescriptor description("block",panzer::WorksetSizeType::ALL_ELEMENTS,true);
 
-    // It shouldn't return any worksets
-    auto worksets = buildPartitionedWorksets(empty_mesh, description);
+  // It shouldn't return any worksets
+  auto worksets = buildPartitionedWorksets(empty_mesh, description);
 
-    TEST_INEQUALITY(worksets,Teuchos::null);
+  TEST_INEQUALITY(worksets,Teuchos::null);
 
-    TEST_EQUALITY(worksets->size(),0);
+  TEST_EQUALITY(worksets->size(),0);
 
-  }
+}
 
+TEUCHOS_UNIT_TEST(setupPartitionedWorksetUtilities, bad_descriptor)
+{
   // Generate a local mesh info object
   Teuchos::RCP<panzer::LocalMeshInfo> mesh_info = generateLocalMeshInfo();
 
@@ -100,12 +101,12 @@ TEUCHOS_UNIT_TEST(setupPartitionedWorksetUtilities, basic)
     // It shouldn't return any worksets
     TEST_THROW(buildPartitionedWorksets(*mesh_info, description),std::logic_error);
   }
-  {
-    panzer::WorksetDescriptor description("block0",panzer::WorksetSizeType::ALL_ELEMENTS,false);
+}
 
-    // This should trow an error since the description doesn't allow partitioning
-    TEST_THROW(buildPartitionedWorksets(*mesh_info, description),std::logic_error);
-  }
+TEUCHOS_UNIT_TEST(setupPartitionedWorksetUtilities, non_existing_components)
+{
+  // Generate a local mesh info object
+  Teuchos::RCP<panzer::LocalMeshInfo> mesh_info = generateLocalMeshInfo();
 
   // Test the worksets
 
@@ -159,6 +160,13 @@ TEUCHOS_UNIT_TEST(setupPartitionedWorksetUtilities, basic)
     // Nothing should have been found
     TEST_EQUALITY(worksets->size(), 0);
   }
+}
+
+
+TEUCHOS_UNIT_TEST(setupPartitionedWorksetUtilities, existing_components)
+{
+  // Generate a local mesh info object
+  Teuchos::RCP<panzer::LocalMeshInfo> mesh_info = generateLocalMeshInfo();
 
   // Existing block partition
   {
@@ -211,6 +219,12 @@ TEUCHOS_UNIT_TEST(setupPartitionedWorksetUtilities, basic)
     TEST_EQUALITY(workset.numGhostCells(),1);
     TEST_EQUALITY(workset.numVirtualCells(),0);
   }
+}
+
+TEUCHOS_UNIT_TEST(setupPartitionedWorksetUtilities, existing_double_components)
+{
+  // Generate a local mesh info object
+  Teuchos::RCP<panzer::LocalMeshInfo> mesh_info = generateLocalMeshInfo();
 
   // Existing block double partition
   {

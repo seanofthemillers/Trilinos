@@ -372,6 +372,9 @@ setupControlInitialCondition(const std::map<std::string,Teuchos::RCP<const shard
   std::vector<Teuchos::RCP<PhysicsBlock> > physics_blocks;
   buildICPhysicsBlocks(block_ids_to_cell_topo,block_ids_to_fields,workset_size,physics_blocks);
 
+  // FIXME: Current workaround for not passing workset_size to all places that use workset container
+  wkstContainer.setWorksetSize(workset_size);
+
   std::map<std::string, Teuchos::RCP< PHX::FieldManager<Traits> > > phx_ic_field_managers;
   setupInitialConditionFieldManagers(wkstContainer,
                                                physics_blocks,

@@ -55,32 +55,38 @@
 #include <map>
 #include <string>
 
+namespace panzer {
+class OrientationsInterface;
+}
+
 namespace panzer_stk { 
 
 /** Build volumetric worksets for a STK mesh
   *
   * \param[in] mesh A pointer to the STK_Interface used to construct the worksets
-  * \param[in] needs Physics block associated with a particular element block
   * \param[in] eBlock Element block to build worksets over (the descriptor information)
+  * \param[in] needs Physics block associated with a particular element block
+  * \param[in] orientations Optional interface for applying orientations to worksets
   *
   * \returns vector of worksets for the corresponding element block.
   */
 Teuchos::RCP<std::vector<panzer::Workset> >  
 buildWorksets(const panzer_stk::STK_Interface & mesh,
               const std::string & eBlock,
-              const panzer::WorksetNeeds & needs);
+              const panzer::WorksetNeeds & needs,
+              Teuchos::RCP<const panzer::OrientationsInterface> orientations = Teuchos::null);
 
 /** Build volumetric worksets for a STK mesh with elements that touch a particular sideset.
   *
   * \param[in] mesh A pointer to the STK_Interface used to construct the worksets
   * \param[in] needs Needs associated with the element block
-  * \param[in] workset_size The size of each workset measured in the number of elements
   * \param[in] sideset The sideset id used to locate volume elements associated with the sideset
   * \param[in] eBlock Element block to build worksets over (the descriptor information)
   * \param[in] useCascade If true, worksets will be built for every local node, edge and face
   *                       that touches the side set. Note that this implies that the workset
   *                       will have repeated elements. This is useful for higher-order surface
   *                       flux calculations.
+  * \param[in] orientations Optional interface for applying orientations to worksets
   *
   * \returns vector of worksets for the corresponding element block.
   */
@@ -89,33 +95,27 @@ buildWorksets(const panzer_stk::STK_Interface & mesh,
               const panzer::WorksetNeeds & needs,
               const std::string & sideset,
               const std::string & eBlock,
-              bool useCascade=false);
+              bool useCascade=false,
+              Teuchos::RCP<const panzer::OrientationsInterface> orientations = Teuchos::null);
 
 /** Build side worksets with elements on both sides (this is for DG)
   *
   * \param[in] mesh A pointer to the STK_Interface used to construct the worksets
   * \param[in] needs_a   Needs of these worksets
-  * \param[in] blockid_a Element block id
+  * \param[in] eblock_a Element block id
   * \param[in] needs_b   Needs of these worksets
-  * \param[in] blockid_b Element block id
-  * \param[in] workset_size The size of each workset measured in the number of elements
+  * \param[in] eblock_b Element block id
   * \param[in] sideset The sideset id used to locate volume elements associated with the sideset
+  * \param[in] orientations Optional interface for applying orientations to worksets
   *
   * \returns vector of worksets for the corresponding edge
   */
 Teuchos::RCP<std::map<unsigned,panzer::Workset> >
 buildBCWorksets(const panzer_stk::STK_Interface & mesh,
-                const panzer::WorksetNeeds & needs_a,
-                const std::string & blockid_a,
-                const panzer::WorksetNeeds & needs_b,
-                const std::string & blockid_b,
-                const std::string & sideset);
-
-Teuchos::RCP<std::map<unsigned,panzer::Workset> >
-buildBCWorksets(const panzer_stk::STK_Interface & mesh,
                 const panzer::WorksetNeeds & needs_a,const std::string & eblock_a,
                 const panzer::WorksetNeeds & needs_b,const std::string & eblock_b,
-                const std::string & sideset);
+                const std::string & sideset,
+                Teuchos::RCP<const panzer::OrientationsInterface> orientations = Teuchos::null);
 
 /** Build boundary condition worksets for a STK mesh
   *
@@ -123,6 +123,7 @@ buildBCWorksets(const panzer_stk::STK_Interface & mesh,
   * \param[in] needs Physics block associated with the element block
   * \param[in] eblockID Name of sideset
   * \param[in] sidesetID Name of sideset
+  * \param[in] orientations Optional interface for applying orientations to worksets
   *
   * \returns Map relating local element side IDs to a workset.
   *
@@ -133,7 +134,8 @@ Teuchos::RCP<std::map<unsigned,panzer::Workset> >
 buildBCWorksets(const panzer_stk::STK_Interface & mesh,
                 const panzer::WorksetNeeds & needs,
                 const std::string & eblockID,
-                const std::string & sidesetID);
+                const std::string & sidesetID,
+                Teuchos::RCP<const panzer::OrientationsInterface> orientations = Teuchos::null);
 
 // namespace may not be neccssary in the future, currently avoids
 // collisions with previously implemented code in tests

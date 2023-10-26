@@ -67,7 +67,7 @@ getSideWorksets(const panzer::WorksetDescriptor & desc,
 {
   TEUCHOS_ASSERT(desc.useSideset());
 
-  return panzer_stk::buildBCWorksets(*mesh_,needs,desc.getElementBlock(0),desc.getSideset());
+  return panzer_stk::buildBCWorksets(*mesh_,needs,desc.getElementBlock(0),desc.getSideset(), this->getOrientationsInterface());
 }
 
 Teuchos::RCP<std::map<unsigned,panzer::Workset> > WorksetFactory::
@@ -80,14 +80,18 @@ getSideWorksets(const panzer::WorksetDescriptor & desc,
   TEUCHOS_ASSERT(desc.getSideset(0)==desc.getSideset(1));
   return panzer_stk::buildBCWorksets(*mesh_, needs_a, desc.getElementBlock(0),
                                              needs_b, desc.getElementBlock(1),
-                                             desc.getSideset(0));
+                                             desc.getSideset(0),
+                                             this->getOrientationsInterface());
 }
 
 Teuchos::RCP<std::vector<panzer::Workset> > WorksetFactory::
 getWorksets(const panzer::WorksetDescriptor & worksetDesc,
             const panzer::WorksetNeeds & needs) const
 {
-  if(!worksetDesc.useSideset()) {
+
+  // FIXME: We currently cannot use a cascade worksets with the partitioned worksets interface
+
+  if(!worksetDesc.useCascade()){
     // Generate the local mesh info if it doesn't already exist
     if(mesh_info_ == Teuchos::null){
       TEUCHOS_ASSERT(mesh_ != Teuchos::null);
@@ -123,71 +127,11 @@ getWorksets(const panzer::WorksetDescriptor & worksetDesc,
 
     return worksets;
 
-  }
-  // if(worksetDesc.requiresPartitioning()){
-
-  //   // Generate the local mesh info if it doesn't already exist
-  //   if(mesh_info_ == Teuchos::null){
-  //     TEUCHOS_ASSERT(mesh_ != Teuchos::null);
-  //     mesh_info_ = panzer_stk::generateLocalMeshInfo(*mesh_);
-  //   }
-
-  //   auto worksets = panzer::buildPartitionedWorksets(*mesh_info_, worksetDesc, this->getOrientationsInterface());
-
-  //   // Fill in whatever is in the needs object
-  //   // FIXME: This will just get optimized out... Adding volatile to the calls makes the worksets pretty ugly
-  //   for(auto & workset : *worksets){
-
-  //     // Initialize IntegrationValues from integration descriptors
-  //     for(const auto & id : needs.getIntegrators())
-  //       workset.getIntegrationValues(id);
-
-  //     // Initialize PointValues from point descriptors
-  //     for(const auto & pd : needs.getPoints())
-  //       workset.getPointValues(pd);
-
-  //     // Initialize BasisValues
-  //     for(const auto & bd : needs.getBases()){
-
-  //       // Initialize BasisValues from integrators
-  //       for(const auto & id : needs.getIntegrators())
-  //         workset.getBasisValues(bd,id);
-
-  //       // Initialize BasisValues from points
-  //       for(const auto & pd : needs.getPoints())
-  //         workset.getBasisValues(bd,pd);
-  //     }
-  //   }
-
-  //   return worksets;
-
-  // } else if(!worksetDesc.useSideset()) {
-  //   // The non-partitioned case always creates worksets with just the
-  //   // owned elements.  CLASSIC_MODE gets the workset size directly
-  //   // from needs that is populated externally. As we transition away
-  //   // from classic mode, we need to create a copy of needs and
-  //   // override the workset size with values from WorksetDescription.
-  //   if (worksetDesc.getWorksetSize() == panzer::WorksetSizeType::CLASSIC_MODE)
-  //     return panzer_stk::buildWorksets(*mesh_,worksetDesc.getElementBlock(), needs);
-  //   else {
-  //     int worksetSize = worksetDesc.getWorksetSize();
-  //     if (worksetSize == panzer::WorksetSizeType::ALL_ELEMENTS) {
-  //       std::vector<stk::mesh::Entity> elements;
-  //       mesh_->getMyElements(worksetDesc.getElementBlock(),elements);
-  //       worksetSize = elements.size();
-  //     }
-  //     // Needs is not a required field, so we just override it with the mesh's value
-  //     panzer::WorksetNeeds tmpNeeds(needs);
-  //     tmpNeeds.cellData = panzer::CellData(worksetSize,mesh_->getCellTopology(worksetDesc.getElementBlock()));
-  //     return panzer_stk::buildWorksets(*mesh_,worksetDesc.getElementBlock(), tmpNeeds);
-  //   }
-  // }
-  else if(worksetDesc.useSideset() && worksetDesc.sideAssembly()) {
+  } else {
     // uses cascade by default, each subcell has its own workset
-    return panzer_stk::buildWorksets(*mesh_,needs,worksetDesc.getSideset(),worksetDesc.getElementBlock(),true);
-  }
-  else {
-    TEUCHOS_ASSERT(false);
+    return panzer_stk::buildWorksets(*mesh_,needs,
+                                     worksetDesc.getSideset(),worksetDesc.getElementBlock(),
+                                     true,this->getOrientationsInterface());
   }
 }
 

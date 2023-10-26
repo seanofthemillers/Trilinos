@@ -56,26 +56,42 @@ namespace panzer {
   
   class Workset;
   class WorksetDetails;
+  class OrientationsInterface;
 
   template<typename ArrayT>
   Teuchos::RCP<std::vector<Workset> > 
   buildWorksets(const WorksetNeeds & needs,
                 const std::string & elementBlock,
                 const std::vector<std::size_t>& local_cell_ids,
-                const ArrayT& node_coordinates);
+                const ArrayT& node_coordinates,
+                Teuchos::RCP<const panzer::OrientationsInterface> orientations = Teuchos::null);
+
+  template<typename ArrayT>
+  Teuchos::RCP<std::vector<Workset> > 
+  buildSubcellWorksets(const WorksetNeeds & needs,
+                       const std::string & elementBlock,
+                       const bool side_assembly,
+                       const int subcell_dim,
+                       const int subcell_index,
+                       const std::vector<std::size_t>& local_cell_ids,
+                       const ArrayT& node_coordinates,
+                       Teuchos::RCP<const panzer::OrientationsInterface> orientations = Teuchos::null);
 
   template<typename ArrayT>
   Teuchos::RCP<std::map<unsigned,Workset> >
   buildBCWorkset(const WorksetNeeds & needs,
                  const std::string & elementBlock,
+                 const std::string & sideset,
                  const std::vector<std::size_t>& local_cell_ids,
                  const std::vector<std::size_t>& local_side_ids,
                  const ArrayT& node_coordinates,
-                 const bool populate_value_arrays = true);
+                 const bool populate_value_arrays = true,
+                 Teuchos::RCP<const panzer::OrientationsInterface> orientations = Teuchos::null);
 
   template<typename ArrayT>
   Teuchos::RCP<std::map<unsigned,panzer::Workset> >
-  buildBCWorkset(const WorksetNeeds & needs_a,
+  buildBCWorkset(const std::string & sideset,
+                 const WorksetNeeds & needs_a,
                  const std::string & blockid_a,
                  const std::vector<std::size_t>& local_cell_ids_a,
                  const std::vector<std::size_t>& local_side_ids_a,
@@ -84,7 +100,8 @@ namespace panzer {
                  const std::string & blockid_b,
                  const std::vector<std::size_t>& local_cell_ids_b,
                  const std::vector<std::size_t>& local_side_ids_b,
-                 const ArrayT& node_coordinates_b);
+                 const ArrayT& node_coordinates_b,
+                 Teuchos::RCP<const panzer::OrientationsInterface> orientations = Teuchos::null);
 
   /** This routine supports construction of worksets that are
     * more DG like. The elements are assumed to shared an

@@ -53,7 +53,7 @@ using Teuchos::rcp;
 
 #include "Panzer_STK_Version.hpp"
 #include "PanzerAdaptersSTK_config.hpp"
-
+#include "Panzer_OrientationsInterface.hpp"
 #include "Panzer_WorksetContainer.hpp"
 #include "Panzer_IntrepidBasisFactory.hpp"
 #include "Panzer_DOFManager.hpp"
@@ -122,17 +122,9 @@ namespace panzer {
 
     RCP<panzer_stk::WorksetFactory> wkstFactory
        = rcp(new panzer_stk::WorksetFactory(mesh)); // build STK workset factory
+    wkstFactory->setOrientationsInterface(Teuchos::rcp(new panzer::OrientationsInterface(dof_manager)));
     RCP<panzer::WorksetContainer> wkstContainer     // attach it to a workset container (uses lazy evaluation)
-       = rcp(new panzer::WorksetContainer);
-    wkstContainer->setFactory(wkstFactory);
-    {
-      WorksetNeeds needs;
-      needs.addBasis(hdiv_basis_desc);
-      needs.addBasis(hcurl_basis_desc);
-      needs.addPoint(hdiv_basis_desc.getPointDescriptor());
-      wkstContainer->setNeeds(element_block,needs);
-    }
-    wkstContainer->setGlobalIndexer(dof_manager);
+       = rcp(new panzer::WorksetContainer(wkstFactory));
     wkstContainer->setWorksetSize(workset_size);
 
     out << "workset container setup [complete]" << std::endl;
@@ -268,22 +260,9 @@ namespace panzer {
 
     RCP<panzer_stk::WorksetFactory> wkstFactory
        = rcp(new panzer_stk::WorksetFactory(mesh)); // build STK workset factory
+    wkstFactory->setOrientationsInterface(Teuchos::rcp(new panzer::OrientationsInterface(dof_manager)));
     RCP<panzer::WorksetContainer> wkstContainer     // attach it to a workset container (uses lazy evaluation)
-       = rcp(new panzer::WorksetContainer);
-    wkstContainer->setFactory(wkstFactory);
-    {
-      WorksetNeeds needs;
-      needs.bases.push_back(Teuchos::rcp(new panzer::PureBasis(hdiv_basis_desc,mesh->getCellTopology(element_block),workset_size)));
-      needs.bases.push_back(Teuchos::rcp(new panzer::PureBasis(hcurl_basis_desc,mesh->getCellTopology(element_block),workset_size)));
-      needs.rep_field_name.push_back("B");
-      needs.rep_field_name.push_back("E");
-      needs.int_rules.push_back(Teuchos::rcp(new panzer::IntegrationRule(quad_desc,mesh->getCellTopology(element_block),workset_size)));
-      needs.cellData = CellData(workset_size,mesh->getCellTopology(element_block));
-
-      wkstContainer->setNeeds(element_block,needs);
-    }
-    wkstContainer->setGlobalIndexer(dof_manager);
-    wkstContainer->setWorksetSize(workset_size);
+       = rcp(new panzer::WorksetContainer(wkstFactory));
 
     out << "workset container setup [complete]" << std::endl;
 
@@ -293,25 +272,22 @@ namespace panzer {
 
     //  this must use this descriptor!
     // panzer::WorksetDescriptor workset_descriptor(element_block, panzer::WorksetSizeType::ALL_ELEMENTS, true,true);
-    panzer::WorksetDescriptor workset_descriptor(element_block);
+    panzer::WorksetDescriptor workset_descriptor(element_block,workset_size);
     std::vector<Workset> & worksets = *wkstContainer->getWorksets(workset_descriptor);
 
     out << "getting worksets [complete]" << std::endl;
 
     // get BasisValues2
     ///////////////////////////////////////////////////////////////////////
-    out <<  worksets[0].bases.size() << std::endl;
 
-    const BasisValues2<double> & hdiv_basis_values = *worksets[0].bases[0];
-    out << (*worksets[0].basis_names)[0]
-        << " " << (*worksets[0].basis_names)[1] << std::endl;
+    const BasisValues2<double> & hdiv_basis_values = worksets[0].getBasisValues(hdiv_basis_desc,quad_desc);
 
-    auto hdiv_weighted_basis_vector = hdiv_basis_values.weighted_basis_vector;
+    auto hdiv_weighted_basis_vector = hdiv_basis_values.getVectorBasisValues(true);
     auto hdiv_weighted_basis_vector_view = PHX::as_view(hdiv_weighted_basis_vector);
     auto hdiv_weighted_basis_vector_h = Kokkos::create_mirror_view(hdiv_weighted_basis_vector_view);
     Kokkos::deep_copy(hdiv_weighted_basis_vector_h, hdiv_weighted_basis_vector_view);
 
-    auto hdiv_basis_vector = hdiv_basis_values.basis_vector;
+    auto hdiv_basis_vector = hdiv_basis_values.getVectorBasisValues(false);
     auto hdiv_basis_vector_view = PHX::as_view(hdiv_basis_vector);
     auto hdiv_basis_vector_h = Kokkos::create_mirror_view(hdiv_basis_vector_view);
     Kokkos::deep_copy(hdiv_basis_vector_h, hdiv_basis_vector_view);

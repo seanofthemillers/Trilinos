@@ -186,6 +186,11 @@ namespace panzer {
     void applyOrientations(const std::vector<Intrepid2::Orientation> & orientations,
                            const int in_num_cells = -1);
 
+    // this is used in workset factory
+    void applyOrientations(const int num_cells,
+                           const Teuchos::RCP<const panzer::OrientationsInterface> orientations,
+                           const Kokkos::View<const panzer::LocalOrdinal*,PHX::Device> local_cell_ids);
+
     void setExtendedDimensions(const std::vector<PHX::index_size_type> & ddims)
     { ddims_ = ddims; }
 

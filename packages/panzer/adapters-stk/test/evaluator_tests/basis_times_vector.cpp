@@ -57,6 +57,7 @@ using Teuchos::rcp;
 #include "Panzer_BasisIRLayout.hpp"
 #include "Panzer_Workset.hpp"
 #include "Panzer_Integrator_BasisTimesVector.hpp"
+#include "Panzer_OrientationsInterface.hpp"
 #include "Panzer_WorksetContainer.hpp"
 
 #include "Panzer_STK_Version.hpp"
@@ -90,7 +91,7 @@ namespace panzer {
   class BilinearPointEvaluator : public PointEvaluation<panzer::Traits::Residual::ScalarT> {
   public:
     virtual ~BilinearPointEvaluator() {}
-    virtual void evaluateContainer(const PHX::MDField<panzer::Traits::Residual::ScalarT,panzer::Cell,panzer::IP,panzer::Dim> & points,
+    virtual void evaluateContainer(const PHX::MDField<const panzer::Traits::Residual::ScalarT,panzer::Cell,panzer::IP,panzer::Dim> & points,
                                    PHX::MDField<panzer::Traits::Residual::ScalarT> & field) const
     {
        int num_cells = field.extent(0);
@@ -148,15 +149,11 @@ namespace panzer {
     std::vector<Teuchos::RCP<panzer::PhysicsBlock> > physicsBlocks;
     physicsBlocks.push_back(physicsBlock); // pushing back singular
 
-    panzer::WorksetContainer wkstContainer; // (Teuchos::rcp(new panzer_stk::WorksetFactory(mesh)),physicsBlocks,workset_size);
+    auto wkstFactory = Teuchos::rcp(new panzer_stk::WorksetFactory(mesh));
+    wkstFactory->setOrientationsInterface(Teuchos::rcp(new panzer::OrientationsInterface(dofManager)));
+    panzer::WorksetContainer wkstContainer(wkstFactory);
 
-    wkstContainer.setFactory(Teuchos::rcp(new panzer_stk::WorksetFactory(mesh)));
-    for(size_t i=0;i<physicsBlocks.size();i++) 
-      wkstContainer.setNeeds(physicsBlocks[i]->elementBlockID(),physicsBlocks[i]->getWorksetNeeds());
-    wkstContainer.setGlobalIndexer(dofManager);
-    wkstContainer.setWorksetSize(workset_size);
-
-    const panzer::WorksetDescriptor wd = panzer::blockDescriptor(eBlockID);
+    const panzer::WorksetDescriptor wd(eBlockID,workset_size);
     Teuchos::RCP<std::vector<panzer::Workset> > work_sets = wkstContainer.getWorksets(wd);
     TEST_EQUALITY(work_sets->size(),1);
 

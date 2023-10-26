@@ -97,7 +97,8 @@ public:
     worksetSize_(worksetSize),
     requiresPartitioning_(requiresPartitioning),
     applyOrientations_(applyOrientations),
-    sideAssembly_(false)
+    sideAssembly_(false),
+    useCascade_(false)
   {
     TEUCHOS_TEST_FOR_EXCEPTION(elementBlock_=="",std::runtime_error,
                                    "WorksetDescriptor constr: Element block name must be non-empty!");
@@ -111,16 +112,20 @@ public:
    * \param[in] sideAssembly Are integration rules and
    *                         basis functions evaluated on the
    *                         side or on the volume of the element.
+   * \param[in] useCascade Include worksets for all combinations of
+   *                       subcell indexes and subcell dimensions
    */
   WorksetDescriptor(const std::string & elementBlock,
                     const std::string & sideset,
-                    const bool sideAssembly)
+                    const bool sideAssembly,
+                    const bool useCascade=false)
   : elementBlock_(elementBlock),
     sideset_(sideset),
     worksetSize_(CLASSIC_MODE),
     requiresPartitioning_(false),
     applyOrientations_(true),
-    sideAssembly_(sideAssembly)
+    sideAssembly_(sideAssembly),
+    useCascade_(useCascade)
   {
     TEUCHOS_TEST_FOR_EXCEPTION(elementBlock_=="",std::runtime_error,
                                "WorksetDescriptor constr: Element block name must be non-empty!");
@@ -147,13 +152,15 @@ public:
                     const std::string & sideset,
                     const int worksetSize=WorksetSizeType::CLASSIC_MODE,
                     const bool requiresPartitioning=false,
-                    const bool applyOrientations=true)
+                    const bool applyOrientations=true,
+                    const bool useCascade = false)
   : elementBlock_(elementBlock),
     sideset_(sideset),
     worksetSize_(worksetSize),
     requiresPartitioning_(requiresPartitioning),
     applyOrientations_(applyOrientations),
-    sideAssembly_(false)
+    sideAssembly_(false),
+    useCascade_(useCascade)
   {
     TEUCHOS_TEST_FOR_EXCEPTION(elementBlock_=="",std::runtime_error,
                                "WorksetDescriptor constr: Element block name must be non-empty!");
@@ -193,7 +200,8 @@ public:
     worksetSize_(worksetSize),
     requiresPartitioning_(requiresPartitioning),
     applyOrientations_(applyOrientations),
-    sideAssembly_(false)
+    sideAssembly_(false),
+    useCascade_(false)
   {
     TEUCHOS_TEST_FOR_EXCEPTION(elementBlock_=="",std::runtime_error,
                                "WorksetDescriptor constr: Element block 0 name must be non-empty!");
@@ -229,10 +237,12 @@ public:
   { return (block==0) ? sideset_ : sideset_2_; }
 
   //! Expects side set assembly on volume
-  //TEUCHOS_DEPRECATED
   bool sideAssembly() const
   { return sideAssembly_; }
-//  { return useSideset(); }
+
+  //! Expects subcell cascade of worksets
+  bool useCascade() const
+  { return useCascade_; }
 
   /** \brief Identifies this workset as an interface between two element blocks
    *
@@ -298,6 +308,11 @@ private:
    * is false.
    */
   bool sideAssembly_;
+
+  /** Generate a cascade workset where a unique workset is defined for 
+   * each subcell index over all subcell dimensions.
+   */
+  bool useCascade_;
 };
 
 //! Equality operation for use with hash tables and maps
@@ -364,7 +379,7 @@ inline WorksetDescriptor sidesetDescriptor(const std::string & eBlock,const std:
  */
 //TEUCHOS_DEPRECATED
 inline WorksetDescriptor sidesetVolumeDescriptor(const std::string & eBlock,const std::string & sideset)
-{ return WorksetDescriptor(eBlock,sideset,true); }
+{ return WorksetDescriptor(eBlock,sideset,false,true); }
 
 }
 

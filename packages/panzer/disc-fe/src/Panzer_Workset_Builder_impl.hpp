@@ -47,7 +47,9 @@
 #include <vector>
 #include <map>
 #include <algorithm>
+#include "Panzer_LocalMeshInfo.hpp"
 #include "Panzer_Workset.hpp"
+#include "Panzer_OrientationsInterface.hpp"
 #include "Panzer_CellData.hpp"
 #include "Panzer_BC.hpp"
 #include "Panzer_Shards_Utilities.hpp"
@@ -62,12 +64,93 @@
 #include "Intrepid2_FunctionSpaceTools.hpp"
 #include "Intrepid2_Basis.hpp"
 
+namespace
+{
+
+void
+setupSimpleWorkset(const std::string & element_block,
+                   const std::string & sideset,
+                   const bool side_assembly,
+                   const int subcell_dimension,
+                   const int subcell_index,
+                   const int num_cells,
+                   Teuchos::RCP<const shards::CellTopology> cell_topology,
+                   PHX::View<const panzer::LocalOrdinal*> local_cell_ids,
+                   PHX::View<const double***> node_coordinates,
+                   Teuchos::RCP<const panzer::OrientationsInterface> orientations,
+                   panzer::Workset & workset)
+{
+
+  const size_t num_verts = node_coordinates.extent(1);
+  const size_t num_dims = cell_topology->getDimension();
+  const size_t num_coord_dims = node_coordinates.extent(2);
+  
+  panzer::LocalMeshPartition partition;
+  partition.num_owned_cells = num_cells;
+  partition.num_ghstd_cells = partition.num_virtual_cells = 0;
+  partition.element_block_name = element_block;
+  partition.sideset_name = sideset;
+  partition.subcell_dimension = subcell_dimension;
+  partition.subcell_index = subcell_index;
+  partition.local_cells = PHX::View<panzer::LocalOrdinal*>("local_cells",num_cells);
+  partition.global_cells = PHX::View<panzer::GlobalOrdinal*>("global_cells",num_cells);
+  partition.cell_nodes = PHX::View<double***>("cell_nodes",num_cells,num_verts,num_dims);
+  partition.cell_topology = cell_topology;
+  partition.has_connectivity = false;
+
+  TEUCHOS_ASSERT(num_coord_dims <= num_dims);
+  // Currently no way to access this, so we fill with zeros
+  // TODO: Do we even need to allocate this if we are not sub-partitioning?
+  Kokkos::deep_copy(partition.global_cells, 0);
+
+  // Fill coo
+  auto & coords = partition.cell_nodes;
+  if(num_coord_dims != num_dims)
+    Kokkos::deep_copy(coords, 0);
+  Kokkos::parallel_for(num_cells,KOKKOS_LAMBDA (int i){
+    for(int j=0; j<num_verts; ++j)
+      for(int k=0; k<num_coord_dims; ++k)
+        coords(i,j,k) = node_coordinates(i,j,k);
+  });
+
+  auto & local_ids = partition.local_cells;
+  TEUCHOS_ASSERT(local_cell_ids.extent(0) >= local_ids.extent(0));
+  Kokkos::parallel_for(num_cells,KOKKOS_LAMBDA (int i){
+    local_ids(i) = local_cell_ids(i);
+  });
+  Kokkos::fence();
+
+  panzer::WorksetOptions options;
+  options.side_assembly_ = side_assembly;
+  options.orientations_ = orientations;
+  workset.setup(partition,options);  
+}
+
+}
+
 template<typename ArrayT>
 Teuchos::RCP< std::vector<panzer::Workset> >
 panzer::buildWorksets(const WorksetNeeds & needs,
                       const std::string & elementBlock,
 		                  const std::vector<std::size_t>& local_cell_ids,
-		                  const ArrayT& node_coordinates)
+		                  const ArrayT& node_coordinates,
+                      Teuchos::RCP<const panzer::OrientationsInterface> orientations)
+{
+  auto topo = needs.cellData.getCellTopology();
+  TEUCHOS_ASSERT(topo != Teuchos::null);
+  return buildSubcellWorksets(needs,elementBlock,false,topo->getDimension(),0,local_cell_ids,node_coordinates,orientations);
+}
+
+template<typename ArrayT>
+Teuchos::RCP<std::vector<panzer::Workset> > 
+panzer::buildSubcellWorksets(const WorksetNeeds & needs,
+                             const std::string & elementBlock,
+                             const bool side_assembly,
+                             const int subcell_dim,
+                             const int subcell_index,
+                             const std::vector<std::size_t>& local_cell_ids,
+                             const ArrayT& node_coordinates,
+                             Teuchos::RCP<const panzer::OrientationsInterface> orientations)
 {
   using std::vector;
   using std::string;
@@ -79,6 +162,7 @@ panzer::buildWorksets(const WorksetNeeds & needs,
   std::size_t total_num_cells = local_cell_ids.size();
 
   std::size_t workset_size = needs.cellData.numCells();
+  auto cell_topology = needs.cellData.getCellTopology();
 
   Teuchos::RCP< std::vector<panzer::Workset> > worksets_ptr =
     Teuchos::rcp(new std::vector<panzer::Workset>);
@@ -127,73 +211,44 @@ panzer::buildWorksets(const WorksetNeeds & needs,
      return worksets_ptr;
   } // end special case
 
-  {
-    std::size_t num_worksets = total_num_cells / workset_size;
-    bool last_set_is_full = true;
-    std::size_t last_workset_size = total_num_cells % workset_size;
-    if (last_workset_size != 0) {
-      num_worksets += 1;
-      last_set_is_full = false;
-    }
+  const int num_verts = node_coordinates.extent(1);
+  const int num_coord_dims = node_coordinates.extent(2);
+  const int num_dims = cell_topology->getDimension();
 
-    worksets.resize(num_worksets);
-    std::vector<panzer::Workset>::iterator i;
-    for (i = worksets.begin(); i != worksets.end(); ++i)
-      i->setNumberOfCells(workset_size,0,0);
+  PHX::View<panzer::LocalOrdinal*> workset_local_cell_ids("local_cell_ids",workset_size);
+  PHX::View<double***> workset_coords("node_coordinates",workset_size,num_verts,num_coord_dims);
 
-    if (!last_set_is_full) {
-      worksets.back().setNumberOfCells(last_workset_size,0,0);
-    }
-  }
+  auto workset_local_cell_ids_h = Kokkos::create_mirror_view(workset_local_cell_ids);
 
-  // assign workset cell local ids
-  std::vector<std::size_t>::const_iterator local_begin = local_cell_ids.begin();
-  for (std::vector<panzer::Workset>::iterator wkst = worksets.begin(); wkst != worksets.end(); ++wkst) {
-    std::vector<std::size_t>::const_iterator begin_iter = local_begin;
-    std::vector<std::size_t>::const_iterator end_iter = begin_iter + wkst->num_cells;
-    local_begin = end_iter;
-    wkst->cell_local_ids.assign(begin_iter,end_iter);
+  int offset = 0;
+  while(true){
 
-    PHX::View<int*> cell_local_ids_k = PHX::View<int*>("Workset:cell_local_ids",wkst->cell_local_ids.size());
-    auto cell_local_ids_k_h = Kokkos::create_mirror_view(cell_local_ids_k);
-    for(std::size_t i=0;i<wkst->cell_local_ids.size();i++)
-      cell_local_ids_k_h(i) = wkst->cell_local_ids[i];
-    Kokkos::deep_copy(cell_local_ids_k, cell_local_ids_k_h);
-    wkst->cell_local_ids_k = cell_local_ids_k;
+    const int num_cells = std::min(workset_size, total_num_cells-offset);
 
-    wkst->cell_node_coordinates = mdArrayFactory.buildStaticArray<double,Cell,NODE,Dim>("cnc",workset_size,
-					 node_coordinates.extent(1),
-					 node_coordinates.extent(2));
-    wkst->block_id = elementBlock;
-    wkst->subcell_dim = needs.cellData.baseCellDimension();
-    wkst->subcell_index = 0;
-  }
+    for(int i=0; i<num_cells; ++i)
+      workset_local_cell_ids_h(i) = local_cell_ids[i+offset];
+    Kokkos::deep_copy(workset_local_cell_ids,workset_local_cell_ids_h);
 
-  TEUCHOS_ASSERT(local_begin == local_cell_ids.end());
-
-  // Copy cell node coordinates into local workset arrays
-  std::size_t offset = 0;
-  for (std::vector<panzer::Workset>::iterator wkst = worksets.begin(); wkst != worksets.end(); ++wkst) {
-    auto cell_node_coordinates = wkst->cell_node_coordinates.get_static_view();
-    Kokkos::parallel_for(wkst->num_cells, KOKKOS_LAMBDA (int cell) {
-      for (std::size_t node = 0; node < node_coordinates.extent(1); ++ node)
-	      for (std::size_t dim = 0; dim < node_coordinates.extent(2); ++ dim) {
-	        cell_node_coordinates(cell,node,dim) = node_coordinates(cell + offset,node,dim);
-        }
+    Kokkos::parallel_for(num_cells, KOKKOS_LAMBDA (int i) {
+      for(int j=0; j<num_verts; ++j)
+        for(int k=0; k<num_coord_dims; ++k)
+          workset_coords(i,j,k) = node_coordinates(i+offset,j,k);
       });
     Kokkos::fence();
-    offset += wkst->num_cells;
+
+    worksets_ptr->push_back(panzer::Workset());
+    setupSimpleWorkset(elementBlock, "", side_assembly,
+                       subcell_dim, subcell_index, num_cells, cell_topology,
+                       workset_local_cell_ids, workset_coords, orientations,
+                       worksets_ptr->back());
+
+    offset += num_cells;
+    if(offset >= total_num_cells)
+      break;
+    
   }
 
-  TEUCHOS_ASSERT(offset == Teuchos::as<std::size_t>(node_coordinates.extent(0)));
-
-  // Set ir and basis arrayskset
-  RCP<vector<int> > ir_degrees = rcp(new vector<int>(0));
-  RCP<vector<string> > basis_names = rcp(new vector<string>(0));
-  for (std::vector<panzer::Workset>::iterator wkst = worksets.begin(); wkst != worksets.end(); ++wkst) {
-    wkst->ir_degrees = ir_degrees;
-    wkst->basis_names = basis_names;
-  }
+  // TODO: This is kept for backward compatability - this path for accessing basis/ir info is deprecated
 
   // setup the integration rules and bases
   for(std::vector<panzer::Workset>::iterator wkst = worksets.begin(); wkst != worksets.end(); ++wkst)
@@ -209,10 +264,12 @@ template<typename ArrayT>
 Teuchos::RCP<std::map<unsigned,panzer::Workset> >
 panzer::buildBCWorkset(const WorksetNeeds & needs,
                        const std::string & elementBlock,
+                       const std::string & sideset,
                        const std::vector<std::size_t>& local_cell_ids,
                        const std::vector<std::size_t>& local_side_ids,
                        const ArrayT& node_coordinates,
-                       const bool populate_value_arrays)
+                       const bool populate_value_arrays,
+                       Teuchos::RCP<const panzer::OrientationsInterface> orientations)
 {
   using Teuchos::RCP;
   using Teuchos::rcp;
@@ -221,7 +278,7 @@ panzer::buildBCWorkset(const WorksetNeeds & needs,
 
   // key is local face index, value is workset with all elements
   // for that local face
-  auto worksets_ptr = Teuchos::rcp(new std::map<unsigned,panzer::Workset>);
+  auto worksets = Teuchos::rcp(new std::map<unsigned,panzer::Workset>);
 
   // All elements of boundary condition should go into one workset.
   // However due to design of Intrepid2 (requires same basis for all
@@ -237,65 +294,48 @@ panzer::buildBCWorkset(const WorksetNeeds & needs,
   for (std::size_t cell = 0; cell < local_cell_ids.size(); ++cell)
     element_list[local_side_ids[cell]].push_back(std::make_pair(cell, local_cell_ids[cell]));
 
-  auto& worksets = *worksets_ptr;
+  auto cell_topology = needs.cellData.getCellTopology();
+  const int num_verts = node_coordinates.extent(1);
+  const int num_coord_dims = node_coordinates.extent(2);
+  const int num_dims = cell_topology->getDimension();
 
-  // create worksets
-  for (const auto& side : element_list) {
+  const int oversize_num_cells = local_cell_ids.size();
+  PHX::View<panzer::LocalOrdinal*> workset_local_cell_ids("local_cell_ids",oversize_num_cells);
+  PHX::View<double***> workset_coords("node_coordinates",oversize_num_cells,num_verts,num_coord_dims);
 
-    auto& cell_local_ids = worksets[side.first].cell_local_ids;
+  auto workset_local_cell_ids_h = Kokkos::create_mirror_view(workset_local_cell_ids);
+  auto workset_coords_h = Kokkos::create_mirror_view(workset_coords);
 
-    worksets[side.first].cell_node_coordinates = mdArrayFactory.buildStaticArray<double,Cell,NODE,Dim>("cnc",
-                                                          side.second.size(),
-                                                          node_coordinates.extent(1),
-                                                          node_coordinates.extent(2));
-    auto coords_view = worksets[side.first].cell_node_coordinates.get_view();
-    auto coords_h = Kokkos::create_mirror_view(coords_view);
+  for (const auto & side_pr : element_list) {
 
-    auto node_coordinates_h = Kokkos::create_mirror_view(PHX::as_view(node_coordinates));
-    Kokkos::deep_copy(node_coordinates_h, PHX::as_view(node_coordinates));
+    const int side = side_pr.first;
+    const auto & cell_pairs = side_pr.second;
 
-    for (std::size_t cell = 0; cell < side.second.size(); ++cell) {
-      cell_local_ids.push_back(side.second[cell].second);
-      const auto dim0 = side.second[cell].first;
+    const size_t num_cells = cell_pairs.size();
 
-      for(std::size_t node = 0; node < node_coordinates.extent(1); ++node)
-      {
-        const auto extent = Teuchos::as<std::size_t>(node_coordinates.extent(2));
-
-        for (std::size_t dim = 0; dim < extent; ++dim)
-          coords_h(cell, node, dim) = node_coordinates_h(dim0, node, dim);
-      }
+    for(int i=0; i<num_cells; ++i){
+      workset_local_cell_ids_h(i) = cell_pairs[i].second;
+      const int i0 = cell_pairs[i].first;
+      for(int j=0; j<num_verts; ++j)
+        for(int k=0; k<num_coord_dims; ++k)
+          workset_coords_h(i,j,k) = node_coordinates(i0,j,k);
     }
+    Kokkos::deep_copy(workset_local_cell_ids,workset_local_cell_ids_h);
+    Kokkos::deep_copy(workset_coords,workset_coords_h);
+    Kokkos::fence();
 
-    Kokkos::deep_copy(coords_view, coords_h);
-
-    const auto cell_local_ids_size = worksets[side.first].cell_local_ids.size();
-    auto cell_local_ids_k = PHX::View<int*>("Workset:cell_local_ids", cell_local_ids_size);
-    auto cell_local_ids_k_h = Kokkos::create_mirror_view(cell_local_ids_k);
-
-    for(std::size_t i = 0; i < cell_local_ids_size; ++i){
-      cell_local_ids_k_h(i) = worksets.at(side.first).cell_local_ids[i];
-    }
-
-    Kokkos::deep_copy(cell_local_ids_k, cell_local_ids_k_h);
-
-    worksets[side.first].cell_local_ids_k = cell_local_ids_k;
-    worksets[side.first].num_cells = worksets[side.first].cell_local_ids.size();
-    worksets[side.first].block_id = elementBlock;
-    worksets[side.first].subcell_dim = needs.cellData.baseCellDimension() - 1;
-    worksets[side.first].subcell_index = side.first;
+    setupSimpleWorkset(elementBlock, sideset, true,
+                       num_dims-1, side, num_cells, cell_topology,
+                       workset_local_cell_ids, workset_coords, orientations,
+                       (*worksets)[side]);
   }
 
-  if (populate_value_arrays) {
-    // setup the integration rules and bases
-    for (std::map<unsigned,panzer::Workset>::iterator wkst = worksets.begin();
-         wkst != worksets.end(); ++wkst) {
+  // setup the integration rules and bases
+  if (populate_value_arrays)
+    for (auto wkst = worksets->begin(); wkst != worksets->end(); ++wkst) 
+      populateValueArrays(wkst->second.num_cells,true,needs,wkst->second);
 
-      populateValueArrays(wkst->second.num_cells,true,needs,wkst->second); // populate "side" values
-    }
-  }
-
-  return worksets_ptr;
+  return worksets;
 }
 
 // ****************************************************************
@@ -340,7 +380,8 @@ void subset(const std::vector<T>& a, const std::vector<std::size_t>& idxs, std::
 
 template<typename ArrayT>
 Teuchos::RCP<std::map<unsigned,panzer::Workset> >
-buildBCWorksetForUniqueSideId(const panzer::WorksetNeeds & needs_a,
+buildBCWorksetForUniqueSideId(const std::string & sideset,
+                              const panzer::WorksetNeeds & needs_a,
                               const std::string & blockid_a,
                               const std::vector<std::size_t>& local_cell_ids_a,
                               const std::vector<std::size_t>& local_side_ids_a,
@@ -350,14 +391,15 @@ buildBCWorksetForUniqueSideId(const panzer::WorksetNeeds & needs_a,
                               const std::vector<std::size_t>& local_cell_ids_b,
                               const std::vector<std::size_t>& local_side_ids_b,
                               const ArrayT& node_coordinates_b,
-                              const WorksetNeeds& needs_b2)
+                              const WorksetNeeds& needs_b2,
+                              Teuchos::RCP<const panzer::OrientationsInterface> orientations)
 {
   TEUCHOS_ASSERT(local_cell_ids_a.size() == local_cell_ids_b.size());
   // Get a and b workset maps separately, but don't populate b's arrays.
   const Teuchos::RCP<std::map<unsigned,panzer::Workset> >
-    mwa = buildBCWorkset(needs_a,blockid_a, local_cell_ids_a, local_side_ids_a, node_coordinates_a),
-    mwb = buildBCWorkset(needs_b2, blockid_b, local_cell_ids_b, local_side_ids_b,
-                         node_coordinates_b, false /* populate_value_arrays */);
+    mwa = buildBCWorkset(needs_a,blockid_a, sideset, local_cell_ids_a, local_side_ids_a, node_coordinates_a,true,orientations),
+    mwb = buildBCWorkset(needs_b2, blockid_b, sideset, local_cell_ids_b, local_side_ids_b,
+                         node_coordinates_b, false /* populate_value_arrays */,orientations);
   TEUCHOS_ASSERT(mwa->size() == 1 && mwb->size() == 1);
   for (std::map<unsigned,panzer::Workset>::iterator ait = mwa->begin(), bit = mwb->begin();
        ait != mwa->end(); ++ait, ++bit) {
@@ -381,7 +423,8 @@ buildBCWorksetForUniqueSideId(const panzer::WorksetNeeds & needs_a,
 
 template<typename ArrayT>
 Teuchos::RCP<std::map<unsigned,panzer::Workset> >
-panzer::buildBCWorkset(const WorksetNeeds & needs_a,
+panzer::buildBCWorkset(const std::string & sideset,
+                       const WorksetNeeds & needs_a,
                        const std::string & blockid_a,
                        const std::vector<std::size_t>& local_cell_ids_a,
                        const std::vector<std::size_t>& local_side_ids_a,
@@ -390,7 +433,8 @@ panzer::buildBCWorkset(const WorksetNeeds & needs_a,
                        const std::string & blockid_b,
                        const std::vector<std::size_t>& local_cell_ids_b,
                        const std::vector<std::size_t>& local_side_ids_b,
-                       const ArrayT& node_coordinates_b)
+                       const ArrayT& node_coordinates_b,
+                       Teuchos::RCP<const panzer::OrientationsInterface> orientations)
 {
   // Since Intrepid2 requires all side IDs in a workset to be the same (see
   // Intrepid2 comment above), we break the element list into pieces such that
@@ -399,9 +443,10 @@ panzer::buildBCWorkset(const WorksetNeeds & needs_a,
   auto side_id_associations = impl::associateCellsBySideIds(local_side_ids_a, local_side_ids_b);
   if (side_id_associations->size() == 1) {
     // Common case of one workset on each side; optimize for it.
-    return impl::buildBCWorksetForUniqueSideId(needs_a, blockid_a, local_cell_ids_a, local_side_ids_a, node_coordinates_a,
+    return impl::buildBCWorksetForUniqueSideId(sideset,
+                                               needs_a, blockid_a, local_cell_ids_a, local_side_ids_a, node_coordinates_a,
                                                needs_b, blockid_b, local_cell_ids_b, local_side_ids_b, node_coordinates_b,
-                                               needs_b);
+                                               needs_b,orientations);
   } else {
     // The interface has elements having a mix of side IDs, so deal with each
     // pair in turn.
@@ -434,9 +479,10 @@ panzer::buildBCWorkset(const WorksetNeeds & needs_a,
       }
       Kokkos::deep_copy(nc_a.get_static_view(), nc_a_h);
       Kokkos::deep_copy(nc_b.get_static_view(), nc_b_h);
-      auto mwa_it = impl::buildBCWorksetForUniqueSideId(needs_a,blockid_a, lci_a, lsi_a, nc_a,
+      auto mwa_it = impl::buildBCWorksetForUniqueSideId(sideset,
+                                                        needs_a,blockid_a, lci_a, lsi_a, nc_a,
                                                         needs_b,blockid_b, lci_b, lsi_b, nc_b,
-                                                        needs_b);
+                                                        needs_b,orientations);
       TEUCHOS_ASSERT(mwa_it->size() == 1);
       // Form a unique key that encodes the pair (side ID a, side ID b). We
       // abuse the key here in the sense that it is everywhere else understood

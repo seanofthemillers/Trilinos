@@ -57,6 +57,7 @@ using Teuchos::rcp;
 #include "Panzer_IntegrationRule.hpp"
 #include "Panzer_IntegrationValues2.hpp"
 #include "Panzer_CellData.hpp"
+#include "Panzer_LocalMeshInfo.hpp"
 #include "Panzer_Workset.hpp"
 #include "Panzer_Traits.hpp"
 #include "Panzer_PureBasis.hpp"
@@ -157,7 +158,7 @@ class RefCoordEvaluator
 
     using ScalarT = typename EvalT::ScalarT;
   PHX::MDField<ScalarT,panzer::Point,panzer::Dim> fieldValue;
-  Teuchos::RCP<panzer::IntegrationValues2<double> > quadValues;
+  IntegrationDescriptor id_;
 public:
   Teuchos::RCP<PHX::DataLayout> coordsLayout;
 }; // end of class RefCoordEvaluator
@@ -169,11 +170,12 @@ RefCoordEvaluator(
 {
   // Read from parameters
   const std::string name = p.get<std::string>("Name");
-  quadValues = p.get< Teuchos::RCP<panzer::IntegrationValues2<double> > >("Quad Values");
+  auto ir = p.get< Teuchos::RCP<panzer::IntegrationRule > >("IR");
+  id_ = *ir;
 
   // grab information from quadrature rule
-  coordsLayout = Teuchos::rcp(new PHX::MDALayout<panzer::Point,panzer::Dim>(quadValues->int_rule->num_points,
-                                                                         quadValues->int_rule->spatial_dimension));
+  coordsLayout = Teuchos::rcp(new PHX::MDALayout<panzer::Point,panzer::Dim>(ir->num_points,
+                                                                            ir->spatial_dimension));
   fieldValue = PHX::MDField<ScalarT,panzer::Point,panzer::Dim>(name, coordsLayout);
 
   this->addEvaluatedField(fieldValue);
@@ -185,14 +187,14 @@ template<typename EvalT, typename Traits>
 void
 RefCoordEvaluator<EvalT, Traits>::
 evaluateFields(
-  typename Traits::EvalData  /* workset */)
+  typename Traits::EvalData  workset )
 {
   auto lfieldValue = fieldValue;
-  auto lcub_points = quadValues->cub_points;
+  auto lcub_points = workset.getIntegrationValues(id_).getUniformCubaturePointsRef();
   Kokkos::parallel_for(1, KOKKOS_LAMBDA (int ) {
-      for(int cell=0;cell<lfieldValue.extent_int(0);cell++)
-	for(int pt=0;pt<lfieldValue.extent_int(1);pt++)
-	  lfieldValue(cell,pt) = lcub_points(cell,pt);
+    for(int cell=0;cell<lfieldValue.extent_int(0);cell++)
+	    for(int pt=0;pt<lfieldValue.extent_int(1);pt++)
+	      lfieldValue(cell,pt) = lcub_points(cell,pt);
     });
 }
 //**********************************************************************
@@ -215,53 +217,48 @@ TEUCHOS_UNIT_TEST_TEMPLATE_1_DECL(dof_pointfield,value,EvalType)
   // build a dummy workset
   //////////////////////////////////////////////////////////
   int numCells = 2, numVerts = 4, dim = 2;
-  Teuchos::RCP<panzer::Workset> workset = Teuchos::rcp(new panzer::Workset);
-  MDFieldArrayFactory af("",true);
-  workset->cell_node_coordinates = af.buildStaticArray<double,Cell,NODE,Dim>("coords",numCells,numVerts,dim);
-  Workset::CellCoordArray coords = workset->cell_node_coordinates;
-  Kokkos::parallel_for(1, KOKKOS_LAMBDA (int ) {
-      coords(0,0,0) = 1.0; coords(0,0,1) = 0.0;
-      coords(0,1,0) = 1.0; coords(0,1,1) = 1.0;
-      coords(0,2,0) = 0.0; coords(0,2,1) = 1.0;
-      coords(0,3,0) = 0.0; coords(0,3,1) = 0.0;
+  auto topo = Teuchos::rcp(new shards::CellTopology(shards::getCellTopologyData< shards::Quadrilateral<4> >()));
+  auto worksets = Teuchos::rcp(new std::vector<panzer::Workset>());
+  {
+    panzer::LocalMeshPartition partition;
+    partition.num_owned_cells = numCells;
+    partition.num_ghstd_cells = partition.num_virtual_cells = 0;
+    partition.subcell_dimension = dim;
+    partition.subcell_index = 0;
+    partition.local_cells = PHX::View<panzer::LocalOrdinal*>("local_cells",numCells);
+    partition.global_cells = PHX::View<panzer::GlobalOrdinal*>("global_cells",numCells);
+    partition.cell_nodes = PHX::View<double***>("cell_nodes",numCells,numVerts,dim);
+    partition.cell_topology = topo;
 
-      coords(1,0,0) = 1.0; coords(1,0,1) = 1.0;
-      coords(1,1,0) = 2.0; coords(1,1,1) = 2.0;
-      coords(1,2,0) = 1.0; coords(1,2,1) = 3.0;
-      coords(1,3,0) = 0.0; coords(1,3,1) = 2.0;
-    });
+    auto & coords = partition.cell_nodes;
+    Kokkos::parallel_for(1, KOKKOS_LAMBDA (int ) {
+        coords(0,0,0) = 1.0; coords(0,0,1) = 0.0;
+        coords(0,1,0) = 1.0; coords(0,1,1) = 1.0;
+        coords(0,2,0) = 0.0; coords(0,2,1) = 1.0;
+        coords(0,3,0) = 0.0; coords(0,3,1) = 0.0;
 
-  Teuchos::RCP<shards::CellTopology> topo
-    = Teuchos::rcp(new shards::CellTopology(shards::getCellTopologyData< shards::Quadrilateral<4> >()));
+        coords(1,0,0) = 1.0; coords(1,0,1) = 1.0;
+        coords(1,1,0) = 2.0; coords(1,1,1) = 2.0;
+        coords(1,2,0) = 1.0; coords(1,2,1) = 3.0;
+        coords(1,3,0) = 0.0; coords(1,3,1) = 2.0;
+      });
+
+    panzer::WorksetOptions options;
+      
+    worksets->push_back(panzer::Workset());
+    worksets->back().setup(partition, options);
+  }
 
   // build quadrature values
   int quadOrder = 5;
   panzer::CellData cellData(2,1,topo);
   Teuchos::RCP<panzer::IntegrationRule> quadRule = Teuchos::rcp(new panzer::IntegrationRule(quadOrder,cellData));
-  Teuchos::RCP<panzer::IntegrationValues2<double> > quadValues = Teuchos::rcp(new panzer::IntegrationValues2<double>("",true));
-  quadValues->setupArrays(quadRule);
-  quadValues->evaluateValues(coords);
 
   // build basis values
   std::string basisName = "Q2";
   Teuchos::RCP<panzer::PureBasis> pureBasis = Teuchos::rcp(new panzer::PureBasis(basisName,2,numCells,topo));
   Teuchos::RCP<panzer::BasisIRLayout> basisLayout = Teuchos::rcp(new panzer::BasisIRLayout(pureBasis,*quadRule));
-  Teuchos::RCP<panzer::BasisValues2<double> > basisValues
-     = Teuchos::rcp(new panzer::BasisValues2<double>("",true,true));
-  basisValues->setupArrays(basisLayout);
-  basisValues->evaluateValues(quadValues->cub_points,quadValues->jac,quadValues->jac_det,quadValues->jac_inv,quadValues->weighted_measure,coords);
-
-  // construct workset
-  workset->cell_local_ids.push_back(0); workset->cell_local_ids.push_back(1);
-  workset->num_cells = numCells;
-  workset->block_id = "eblock-0_0";
-  workset->ir_degrees = Teuchos::rcp(new std::vector<int>);
-  workset->ir_degrees->push_back(quadRule->cubature_degree);
-  workset->int_rules.push_back(quadValues);
-  workset->basis_names = Teuchos::rcp(new std::vector<std::string>);
-  workset->basis_names->push_back(basisLayout->name());
-  workset->bases.push_back(basisValues);
-
+  
   Teuchos::RCP<PHX::FieldManager<panzer::Traits> > fm
      = Teuchos::rcp(new PHX::FieldManager<panzer::Traits>);
 
@@ -298,7 +295,7 @@ TEUCHOS_UNIT_TEST_TEMPLATE_1_DECL(dof_pointfield,value,EvalType)
      // build reference coordinate evaluator
      Teuchos::ParameterList p;
      p.set("Name","RefCoord");
-     p.set("Quad Values",quadValues);
+     p.set("IR",quadRule);
      RCP<panzer::RefCoordEvaluator<EvalType,panzer::Traits> > eval
         = rcp(new panzer::RefCoordEvaluator<EvalType,panzer::Traits>(p));
 
@@ -340,11 +337,7 @@ TEUCHOS_UNIT_TEST_TEMPLATE_1_DECL(dof_pointfield,value,EvalType)
   }
 
   panzer::Traits::SD setupData;
-  {
-    auto worksets = rcp(new std::vector<panzer::Workset>);
-    worksets->push_back(*workset);
-    setupData.worksets_ = worksets;
-  }
+  setupData.worksets_ = worksets;
 
   std::vector<PHX::index_size_type> derivative_dimensions;
   derivative_dimensions.push_back(8);
@@ -358,7 +351,7 @@ TEUCHOS_UNIT_TEST_TEMPLATE_1_DECL(dof_pointfield,value,EvalType)
   panzer::Traits::PED preEvalData;
 
   fm->preEvaluate<EvalType>(preEvalData);
-  fm->evaluateFields<EvalType>(*workset);
+  fm->evaluateFields<EvalType>((*worksets)[0]);
   fm->postEvaluate<EvalType>(0);
 
   fm->getFieldData<EvalType>(refField);

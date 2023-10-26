@@ -56,6 +56,7 @@ using Teuchos::rcp;
 #include "Panzer_BasisIRLayout.hpp"
 #include "Panzer_Workset.hpp"
 #include "Panzer_Workset_Utilities.hpp"
+#include "Panzer_OrientationsInterface.hpp"
 #include "Panzer_PointValues_Evaluator.hpp"
 #include "Panzer_BasisValues_Evaluator.hpp"
 #include "Panzer_DOF.hpp"
@@ -71,6 +72,7 @@ using Teuchos::rcp;
 #include "Panzer_STK_Interface.hpp"
 #include "Panzer_STK_SquareQuadMeshFactory.hpp"
 #include "Panzer_STK_SetupUtilities.hpp"
+#include "Panzer_STK_WorksetFactory.hpp"
 #include "Panzer_STKConnManager.hpp"
 #include "Panzer_STK_WorksetFactory.hpp"
 
@@ -118,8 +120,9 @@ namespace panzer {
     Teuchos::RCP<panzer::PhysicsBlock> physicsBlock =
       Teuchos::rcp(new PhysicsBlock(ipb,eBlockID,default_int_order,cell_data,eqset_factory,gd,false));
 
-    Teuchos::RCP<std::vector<panzer::Workset> > work_sets = panzer_stk::buildWorksets(*mesh,physicsBlock->elementBlockID(),
-                                                                                            physicsBlock->getWorksetNeeds());
+    panzer_stk::WorksetFactory workset_factory(mesh);
+    panzer::WorksetDescriptor workset_desc(physicsBlock->elementBlockID(), workset_size);
+    auto work_sets = workset_factory.getWorksets(workset_desc, physicsBlock->getWorksetNeeds());
     TEST_EQUALITY(work_sets->size(),1);
 
     int num_points = 3;
@@ -225,10 +228,10 @@ namespace panzer {
     Kokkos::deep_copy(point_coords_jac_h, point_coords_jac.get_view());
     auto point_coords_jac_inv_h = Kokkos::create_mirror_view(point_coords_jac_inv.get_view());
     Kokkos::deep_copy(point_coords_jac_inv_h, point_coords_jac_inv.get_view());
-    auto cell_node_coordinates_h = Kokkos::create_mirror_view(workset.cell_node_coordinates.get_view());
-    Kokkos::deep_copy(cell_node_coordinates_h, workset.cell_node_coordinates.get_view());
-    auto basis_coordinates_ref_h = Kokkos::create_mirror_view(workset.bases[1]->basis_coordinates_ref.get_view());
-    Kokkos::deep_copy(basis_coordinates_ref_h, workset.bases[1]->basis_coordinates_ref.get_view());
+    auto cell_node_coordinates_h = Kokkos::create_mirror_view(workset.getCellNodes().get_view());
+    Kokkos::deep_copy(cell_node_coordinates_h, workset.getCellNodes().get_view());
+    auto basis_coordinates_ref_h = Kokkos::create_mirror_view(workset.getBasisValues(*basis_q1).getBasisCoordinatesRef().get_view());
+    Kokkos::deep_copy(basis_coordinates_ref_h, workset.getBasisValues(*basis_q1).getBasisCoordinatesRef().get_view());
     for(int c=0;c<basis_q1->numCells();c++) {
        double dx = 0.5;
        double dy = 0.5;
@@ -290,8 +293,9 @@ namespace panzer {
     Teuchos::RCP<panzer::PhysicsBlock> physicsBlock =
       Teuchos::rcp(new PhysicsBlock(ipb,eBlockID,default_int_order,cellData,eqset_factory,gd,false));
 
-    Teuchos::RCP<std::vector<panzer::Workset> > work_sets = panzer_stk::buildWorksets(*mesh,physicsBlock->elementBlockID(),
-                                                                                            physicsBlock->getWorksetNeeds());
+    panzer_stk::WorksetFactory workset_factory(mesh);
+    panzer::WorksetDescriptor workset_desc(physicsBlock->elementBlockID(), workset_size);
+    auto work_sets = workset_factory.getWorksets(workset_desc, physicsBlock->getWorksetNeeds());
     panzer::Workset & workset = (*work_sets)[0];
     TEST_EQUALITY(work_sets->size(),1);
 
@@ -351,17 +355,15 @@ namespace panzer {
     out << basis << std::endl;
 
     WorksetDetailsAccessor wda;
-    std::size_t basisIndex = panzer::getBasisIndex(layout->name(), workset, wda);
-    Teuchos::RCP<panzer::BasisValues2<double> > bases = workset.bases[basisIndex];
-    TEST_ASSERT(bases!=Teuchos::null);
+    const auto & bases = workset.getBasisValues(*basis_q1,*point_rule);
     // TEST_EQUALITY(bases->basis.size(),basis.size());
     auto basis_h = Kokkos::create_mirror_view(basis.get_view());
     Kokkos::deep_copy(basis_h, basis.get_view());
-    auto basis_scalar_h = Kokkos::create_mirror_view(bases->basis_scalar.get_static_view());
-    Kokkos::deep_copy(basis_scalar_h, bases->basis_scalar.get_static_view());
+    auto basis_scalar_h = Kokkos::create_mirror_view(bases.getBasisValues(false).get_static_view());
+    Kokkos::deep_copy(basis_scalar_h, bases.getBasisValues(false).get_static_view());
     for(int i=0;i<4;i++) {
       for(int j=0;j<4;j++) {
-        for(unsigned int k=0;k<bases->basis_scalar.extent(2);k++) {
+        for(unsigned int k=0;k<bases.getBasisValues(false).extent(2);k++) {
           TEST_FLOATING_EQUALITY(basis_scalar_h(i,j,k),basis_h(i,j,k),1e-10);
         }
       }
@@ -421,12 +423,11 @@ namespace panzer {
 
     RCP<panzer_stk::WorksetFactory> wkstFactory
        = rcp(new panzer_stk::WorksetFactory(mesh)); // build STK workset factory
+    wkstFactory->setOrientationsInterface(Teuchos::rcp(new panzer::OrientationsInterface(dof_manager)));
     RCP<panzer::WorksetContainer> wkstContainer     // attach it to a workset container (uses lazy evaluation)
        = rcp(new panzer::WorksetContainer(wkstFactory,needs));
-    wkstContainer->setGlobalIndexer(dof_manager);
-    wkstContainer->setWorksetSize(workset_size);
-
-    Teuchos::RCP<std::vector<panzer::Workset> > work_sets = wkstContainer->getWorksets(blockDescriptor(physicsBlock->elementBlockID()));
+    
+    Teuchos::RCP<std::vector<panzer::Workset> > work_sets = wkstContainer->getWorksets(panzer::WorksetDescriptor(physicsBlock->elementBlockID(), workset_size));
     panzer::Workset & workset = (*work_sets)[0];
     TEST_EQUALITY(work_sets->size(),1);
 
@@ -506,20 +507,18 @@ namespace panzer {
     fm.getFieldData<panzer::Traits::Jacobian,panzer::Traits::Residual::ScalarT,Cell,IP,Dim,Dim>(jac_inv);
 
     WorksetDetailsAccessor wda;
-    std::size_t basisIndex = panzer::getBasisIndex(layout->name(), workset, wda);
-    Teuchos::RCP<panzer::BasisValues2<double> > bases = workset.bases[basisIndex];
-    TEST_ASSERT(bases!=Teuchos::null);
-    TEST_EQUALITY(bases->basis_vector.size(),basis.size());
-    TEST_EQUALITY(bases->curl_basis_scalar.size(),curl_basis.size());
+    const auto & bases = workset.getBasisValues(*basis_edge,*point_rule);
+    TEST_EQUALITY(bases.getVectorBasisValues(false).size(),basis.size());
+    TEST_EQUALITY(bases.getCurl2DVectorBasis(false).size(),curl_basis.size());
 
     auto basis_h = Kokkos::create_mirror_view(basis.get_view());
     Kokkos::deep_copy(basis_h, basis.get_view());
-    auto basis_vector_h = Kokkos::create_mirror_view(bases->basis_vector.get_static_view());
-    Kokkos::deep_copy(basis_vector_h,bases->basis_vector.get_static_view());
+    auto basis_vector_h = Kokkos::create_mirror_view(bases.getVectorBasisValues(false).get_static_view());
+    Kokkos::deep_copy(basis_vector_h,bases.getVectorBasisValues(false).get_static_view());
     for(int i=0;i<4;i++) {
       for(int j=0;j<4;j++) {
-        for(unsigned int k=0;k<bases->curl_basis_scalar.extent(2);k++) {
-          for(unsigned int d=0;d<bases->basis_vector.extent(3);d++) {
+        for(unsigned int k=0;k<bases.getCurl2DVectorBasis(false).extent(2);k++) {
+          for(unsigned int d=0;d<bases.getVectorBasisValues(false).extent(3);d++) {
             TEST_FLOATING_EQUALITY(basis_vector_h(i,j,k,d),basis_h(i,j,k,d),1e-10);
           }
         }
@@ -528,11 +527,11 @@ namespace panzer {
 
     auto curl_basis_h = Kokkos::create_mirror_view(curl_basis.get_view());
     Kokkos::deep_copy(curl_basis_h, curl_basis.get_view());
-    auto curl_basis_scalar_h = Kokkos::create_mirror_view(bases->curl_basis_scalar.get_static_view());
-    Kokkos::deep_copy(curl_basis_scalar_h,bases->curl_basis_scalar.get_static_view());
+    auto curl_basis_scalar_h = Kokkos::create_mirror_view(bases.getCurl2DVectorBasis(false).get_static_view());
+    Kokkos::deep_copy(curl_basis_scalar_h,bases.getCurl2DVectorBasis(false).get_static_view());
     for(int i=0;i<4;i++) {
       for(int j=0;j<4;j++) {
-        for(unsigned int k=0;k<bases->curl_basis_scalar.extent(2);k++) {
+        for(unsigned int k=0;k<bases.getCurl2DVectorBasis(false).extent(2);k++) {
           TEST_FLOATING_EQUALITY(curl_basis_scalar_h(i,j,k),curl_basis_h(i,j,k),1e-10);
         }
       }
@@ -599,14 +598,12 @@ namespace panzer {
 
     RCP<panzer_stk::WorksetFactory> wkstFactory
        = rcp(new panzer_stk::WorksetFactory(mesh)); // build STK workset factory
+    wkstFactory->setOrientationsInterface(Teuchos::rcp(new panzer::OrientationsInterface(dof_manager)));
     RCP<panzer::WorksetContainer> wkstContainer     // attach it to a workset container (uses lazy evaluation)
        = rcp(new panzer::WorksetContainer(wkstFactory,needs));
-    wkstContainer->setGlobalIndexer(dof_manager);
     wkstContainer->setWorksetSize(workset_size);
 
-    // Teuchos::RCP<std::vector<panzer::Workset> > work_sets = panzer_stk::buildWorksets(*mesh,physicsBlock->elementBlockID(),
-    //                                                                                         physicsBlock->getWorksetNeeds());
-    Teuchos::RCP<std::vector<panzer::Workset> > work_sets = wkstContainer->getWorksets(blockDescriptor(physicsBlock->elementBlockID()));
+    auto work_sets = wkstContainer->getWorksets(panzer::WorksetDescriptor(physicsBlock->elementBlockID()));
     panzer::Workset & workset = (*work_sets)[0];
 
     TEST_EQUALITY(work_sets->size(),1);

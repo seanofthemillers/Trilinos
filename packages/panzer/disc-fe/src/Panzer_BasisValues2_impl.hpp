@@ -109,8 +109,24 @@ applyOrientationsImpl(const int num_cells,
   applyOrientationsImpl(num_cells, view, device_orientations, basis);
 }
 
+void buildLocalOrientations(const int num_cells,
+                            const Kokkos::View<const panzer::LocalOrdinal*,PHX::Device> & local_cell_ids,
+                            const Teuchos::RCP<const OrientationsInterface> orientations_interface,
+                            std::vector<Intrepid2::Orientation> & workset_orientations)
+{
+  // from a list of cells in the workset, extract the subset of orientations that correspond
+
+  const auto & local_orientations = *orientations_interface->getOrientations();
+  workset_orientations.resize(num_cells);
+
+  // We can only apply orientations to owned and ghost cells - virtual cells are ignored (no orientations available)
+  auto local_cell_ids_host = Kokkos::create_mirror_view(local_cell_ids);
+  Kokkos::deep_copy(local_cell_ids_host, local_cell_ids);
+  for(int i=0; i<num_cells; ++i)
+    workset_orientations[i] = local_orientations[local_cell_ids_host[i]];
 }
 
+}
 
 template <typename Scalar>
 panzer::BasisValues2<Scalar>::
@@ -429,6 +445,30 @@ void BasisValues2<Scalar>::
 applyOrientations(const PHX::MDField<const Scalar,Cell,BASIS> & orientations)
 {
   TEUCHOS_TEST_FOR_EXCEPT_MSG(true,"panzer::BasisValues2::applyOrientations : this should not be called.");
+}
+
+template<typename Scalar>
+void 
+panzer::BasisValues2<Scalar>::
+applyOrientations(const int num_cells,
+                  const Teuchos::RCP<const panzer::OrientationsInterface> orientations,
+                  const Kokkos::View<const panzer::LocalOrdinal*,PHX::Device> local_cell_ids)
+{
+  // This call exists because there is a middle man we have to go through.
+  // orientations_interface is a 'local' object, not a workset object so we need to map local cells to workset cells
+
+  // If the object doesn't exist, feel free to skip applying orientations, they aren't needed in some cases (e.g. DG/FV)
+  if(orientations.is_null())
+    return;
+
+  // Ignore this operation if it has already been applied
+  if(orientationsApplied())
+    return;
+  
+  // pull out the subset of orientations required for the given local cell ids
+  std::vector<Intrepid2::Orientation> my_orientations(num_cells);
+  buildLocalOrientations(num_cells,local_cell_ids,orientations, my_orientations);
+  this->applyOrientations(my_orientations,num_cells);
 }
 
 template <typename Scalar>
@@ -1372,8 +1412,11 @@ getVectorBasisValues(const bool weighted,
       }
     }
 
-    if(orientations_.size() > 0)
+    std::cout << "BasisValues2::getVectorBasisValues SHOULD I APPLY ORIENTATIONS TO BASIS? " << std::endl;
+    if(orientations_.size() > 0){
+      std::cout << "BasisValues2::getVectorBasisValues APPLIED ORIENTATIONS TO BASIS!" << std::endl;
       applyOrientationsImpl<Scalar>(num_orientations_cells_, tmp_basis_vector.get_view(), orientations_, *intrepid_basis);
+    }
 
     // Store for later if cache is enabled
     PANZER_CACHE_DATA(basis_vector);

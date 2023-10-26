@@ -97,6 +97,7 @@ namespace panzer_stk {
   RCP<panzer_stk::STK_Interface> buildMesh(bool flag=false);
   void buildPhysicsBlocks(panzer_stk::STK_Interface & mesh,
                           std::vector<Teuchos::RCP<panzer::PhysicsBlock> > & physics_blocks,
+                          const int workset_size,
                           panzer::ClosureModelFactory_TemplateManager<panzer::Traits> & cm_factory,
                           Teuchos::ParameterList & closure_models,
                           Teuchos::ParameterList & user_data);
@@ -133,14 +134,17 @@ namespace panzer_stk {
 
     Teuchos::RCP<panzer_stk::STK_Interface> mesh = buildMesh();
 
+    const int workset_size = 3;
     RCP<panzer::WorksetFactoryBase> wkstFactory
        = Teuchos::rcp(new panzer_stk::WorksetFactory(mesh)); // build STK workset factory
 
-    buildPhysicsBlocks(*mesh,physics_blocks,cm_factory,closure_models,user_data);
+    buildPhysicsBlocks(*mesh,physics_blocks,workset_size,cm_factory,closure_models,user_data);
+
+    panzer::IntegrationDescriptor id(3,panzer::IntegrationDescriptor::VOLUME);
 
     {
       RCP<std::vector<panzer::Workset> > worksets
-        = wkstFactory->getWorksets(panzer::blockDescriptor("eblock-1_0"),
+        = wkstFactory->getWorksets(panzer::WorksetDescriptor("eblock-1_0",workset_size),
                                    physics_blocks[0]->getWorksetNeeds());
 
       TEST_ASSERT(worksets!=Teuchos::null);
@@ -161,32 +165,32 @@ namespace panzer_stk {
         TEST_EQUALITY((*worksets)[0].num_cells,3);
         TEST_EQUALITY((*worksets)[0].subcell_dim,0);
         TEST_EQUALITY((*worksets)[0].subcell_index,0);
-        TEST_ASSERT(!(*worksets)[0].int_rules[0]->int_rule->isSide());
+        TEST_ASSERT(!(*worksets)[0].getIntegrationRule(id).isSide());
 
         TEST_EQUALITY((*worksets)[1].num_cells,1);
         TEST_EQUALITY((*worksets)[1].subcell_dim,0);
         TEST_EQUALITY((*worksets)[1].subcell_index,0);
-        TEST_ASSERT(!(*worksets)[1].int_rules[0]->int_rule->isSide());
+        TEST_ASSERT(!(*worksets)[1].getIntegrationRule(id).isSide());
 
         TEST_EQUALITY((*worksets)[2].num_cells,3);
         TEST_EQUALITY((*worksets)[2].subcell_dim,0);
         TEST_EQUALITY((*worksets)[2].subcell_index,3);
-        TEST_ASSERT(!(*worksets)[2].int_rules[0]->int_rule->isSide());
+        TEST_ASSERT(!(*worksets)[2].getIntegrationRule(id).isSide());
 
         TEST_EQUALITY((*worksets)[3].num_cells,1);
         TEST_EQUALITY((*worksets)[3].subcell_dim,0);
         TEST_EQUALITY((*worksets)[3].subcell_index,3);
-        TEST_ASSERT(!(*worksets)[3].int_rules[0]->int_rule->isSide());
+        TEST_ASSERT(!(*worksets)[3].getIntegrationRule(id).isSide());
 
         TEST_EQUALITY((*worksets)[4].num_cells,3);
         TEST_EQUALITY((*worksets)[4].subcell_dim,1);
         TEST_EQUALITY((*worksets)[4].subcell_index,3);
-        TEST_ASSERT(!(*worksets)[4].int_rules[0]->int_rule->isSide());
+        TEST_ASSERT(!(*worksets)[4].getIntegrationRule(id).isSide());
 
         TEST_EQUALITY((*worksets)[5].num_cells,1);
         TEST_EQUALITY((*worksets)[5].subcell_dim,1);
         TEST_EQUALITY((*worksets)[5].subcell_index,3);
-        TEST_ASSERT(!(*worksets)[5].int_rules[0]->int_rule->isSide());
+        TEST_ASSERT(!(*worksets)[5].getIntegrationRule(id).isSide());
       }
       else {
         TEST_ASSERT(worksets!=Teuchos::null);
@@ -212,14 +216,16 @@ namespace panzer_stk {
 
     Teuchos::RCP<panzer_stk::STK_Interface> mesh = buildMesh(true);
 
+    const int workset_size = 3;
     RCP<panzer::WorksetFactoryBase> wkstFactory
        = Teuchos::rcp(new panzer_stk::WorksetFactory(mesh)); // build STK workset factory
 
-    buildPhysicsBlocks(*mesh,physics_blocks,cm_factory,closure_models,user_data);
+    buildPhysicsBlocks(*mesh,physics_blocks,workset_size,cm_factory,closure_models,user_data);
+    panzer::IntegrationDescriptor id(3,panzer::IntegrationDescriptor::VOLUME);
 
     {
       RCP<std::vector<panzer::Workset> > worksets
-         = wkstFactory->getWorksets(panzer::sidesetVolumeDescriptor("eblock-0_0","left"),
+         = wkstFactory->getWorksets(panzer::WorksetDescriptor("eblock-0_0","left",workset_size,false,true,true),
                                     physics_blocks[0]->getWorksetNeeds());
 
 
@@ -231,7 +237,7 @@ namespace panzer_stk {
         TEST_EQUALITY((*worksets)[0].num_cells,2);
         TEST_EQUALITY((*worksets)[0].subcell_dim,0);
         TEST_EQUALITY((*worksets)[0].subcell_index,0);
-        TEST_ASSERT(!(*worksets)[0].int_rules[0]->int_rule->isSide());
+        TEST_ASSERT(!(*worksets)[0].getIntegrationRule(id).isSide());
 
         panzer::Workset & current = (*worksets)[0];
         for(panzer::index_t i=0;i<current.num_cells;i++) {
@@ -241,12 +247,12 @@ namespace panzer_stk {
         TEST_EQUALITY((*worksets)[1].num_cells,2);
         TEST_EQUALITY((*worksets)[1].subcell_dim,0);
         TEST_EQUALITY((*worksets)[1].subcell_index,3);
-        TEST_ASSERT(!(*worksets)[1].int_rules[0]->int_rule->isSide());
+        TEST_ASSERT(!(*worksets)[1].getIntegrationRule(id).isSide());
 
         TEST_EQUALITY((*worksets)[2].num_cells,2);
         TEST_EQUALITY((*worksets)[2].subcell_dim,1);
         TEST_EQUALITY((*worksets)[2].subcell_index,3);
-        TEST_ASSERT(!(*worksets)[2].int_rules[0]->int_rule->isSide());
+        TEST_ASSERT(!(*worksets)[2].getIntegrationRule(id).isSide());
       }
       else {
         TEST_ASSERT(worksets!=Teuchos::null);
@@ -255,17 +261,17 @@ namespace panzer_stk {
         TEST_EQUALITY((*worksets)[0].num_cells,2);
         TEST_EQUALITY((*worksets)[0].subcell_dim,0);
         TEST_EQUALITY((*worksets)[0].subcell_index,0);
-        TEST_ASSERT(!(*worksets)[0].int_rules[0]->int_rule->isSide());
+        TEST_ASSERT(!(*worksets)[0].getIntegrationRule(id).isSide());
 
         TEST_EQUALITY((*worksets)[1].num_cells,2);
         TEST_EQUALITY((*worksets)[1].subcell_dim,0);
         TEST_EQUALITY((*worksets)[1].subcell_index,3);
-        TEST_ASSERT(!(*worksets)[1].int_rules[0]->int_rule->isSide());
+        TEST_ASSERT(!(*worksets)[1].getIntegrationRule(id).isSide());
 
         TEST_EQUALITY((*worksets)[2].num_cells,2);
         TEST_EQUALITY((*worksets)[2].subcell_dim,1);
         TEST_EQUALITY((*worksets)[2].subcell_index,3);
-        TEST_ASSERT(!(*worksets)[2].int_rules[0]->int_rule->isSide());
+        TEST_ASSERT(!(*worksets)[2].getIntegrationRule(id).isSide());
       }
 
     }
@@ -469,14 +475,14 @@ namespace panzer_stk {
 
   void buildPhysicsBlocks(panzer_stk::STK_Interface & mesh,
                           std::vector<Teuchos::RCP<panzer::PhysicsBlock> > & physics_blocks,
+                          const int workset_size,
                           panzer::ClosureModelFactory_TemplateManager<panzer::Traits> & /* cm_factory */,
                           Teuchos::ParameterList & /* closure_models */,
                           Teuchos::ParameterList & /* user_data */)
   {
     Teuchos::RCP<user_app::MyFactory> eqset_factory = Teuchos::rcp(new user_app::MyFactory);
     user_app::BCFactory bc_factory;
-    const std::size_t workset_size = 3;
-
+    
     // setup physic blocks
     /////////////////////////////////////////////
     Teuchos::RCP<Teuchos::ParameterList> ipb = Teuchos::parameterList("Physics Blocks");

@@ -24,6 +24,7 @@
 #endif
 #include "Panzer_ElementBlockIdToPhysicsIdMap.hpp"
 #include "Panzer_BlockedDOFManagerFactory.hpp"
+#include "Panzer_OrientationsInterface.hpp"
 #include "Panzer_ModelEvaluator.hpp"
 // #include "Panzer_InitialCondition_Builder.hpp"
 // #include "Panzer_CheckBCConsistency.hpp"
@@ -361,9 +362,22 @@ int main_(Teuchos::CommandLineProcessor &clp, int argc,char * argv[])
     // fields to be setup)
     createExodusFile(physicsBlocks, mesh_factory, mesh, exodus_output, comm, physics);
 
+    // build the connection manager
+    const Teuchos::RCP<panzer::ConnManager>
+      conn_manager = Teuchos::rcp(new panzer_stk::STKConnManager(mesh));
+
+    // blocked degree of freedom manager
+    panzer::BlockedDOFManagerFactory globalIndexerFactory;
+    std::string fieldOrder = assembly_pl.get<std::string>("Field Order");
+    RCP<panzer::GlobalIndexer > dofManager = globalIndexerFactory.buildGlobalIndexer(comm->getRawMpiComm(),physicsBlocks,conn_manager,fieldOrder);
+
+    // auxiliary dof manager
+    RCP<panzer::GlobalIndexer > auxDofManager = globalIndexerFactory.buildGlobalIndexer(comm->getRawMpiComm(),auxPhysicsBlocks,conn_manager,auxFieldOrder);
+
     // build worksets
     Teuchos::RCP<panzer_stk::WorksetFactory> wkstFactory
       = Teuchos::rcp(new panzer_stk::WorksetFactory(mesh)); // build STK workset factory
+    wkstFactory->setOrientationsInterface(Teuchos::rcp(new panzer::OrientationsInterface(dofManager)));
     Teuchos::RCP<panzer::WorksetContainer> wkstContainer     // attach it to a workset container (uses lazy evaluation)
       = Teuchos::rcp(new panzer::WorksetContainer(wkstFactory));
     Teuchos::RCP<panzer::WorksetContainer> auxWkstContainer  // attach it to a workset container (uses lazy evaluation)
@@ -378,18 +392,6 @@ int main_(Teuchos::CommandLineProcessor &clp, int argc,char * argv[])
     auxWkstContainer->setWorksetSize(workset_size);
 
     // build DOF Managers and linear object factories
-
-    // build the connection manager
-    const Teuchos::RCP<panzer::ConnManager>
-      conn_manager = Teuchos::rcp(new panzer_stk::STKConnManager(mesh));
-
-    // blocked degree of freedom manager
-    panzer::BlockedDOFManagerFactory globalIndexerFactory;
-    std::string fieldOrder = assembly_pl.get<std::string>("Field Order");
-    RCP<panzer::GlobalIndexer > dofManager = globalIndexerFactory.buildGlobalIndexer(comm->getRawMpiComm(),physicsBlocks,conn_manager,fieldOrder);
-
-    // auxiliary dof manager
-    RCP<panzer::GlobalIndexer > auxDofManager = globalIndexerFactory.buildGlobalIndexer(comm->getRawMpiComm(),auxPhysicsBlocks,conn_manager,auxFieldOrder);
 
     // construct some linear algebra objects, build object to pass to evaluators
     Teuchos::RCP<panzer::LinearObjFactory<panzer::Traits> > linObjFactory = Teuchos::rcp(new blockedLinObjFactory(comm,rcp_dynamic_cast<panzer::BlockedDOFManager>(dofManager,true)));

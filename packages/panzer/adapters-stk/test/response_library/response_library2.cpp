@@ -69,6 +69,7 @@ using Teuchos::rcp;
 #include "user_app_BCStrategy_Factory.hpp"
 
 #include "Panzer_ResponseLibrary.hpp"
+#include "Panzer_OrientationsInterface.hpp"
 #include "Panzer_WorksetContainer.hpp"
 
 #include "TestEvaluators.hpp"
@@ -457,22 +458,6 @@ namespace panzer {
                                   physics_blocks);
     }
 
-    // setup worksets
-    /////////////////////////////////////////////
-
-     std::vector<std::string> validEBlocks;
-     mesh->getElementBlockNames(validEBlocks);
-
-    // build WorksetContainer
-    Teuchos::RCP<panzer_stk::WorksetFactory> wkstFactory
-       = Teuchos::rcp(new panzer_stk::WorksetFactory(mesh)); // build STK workset factory
-    Teuchos::RCP<panzer::WorksetContainer> wkstContainer     // attach it to a workset container (uses lazy evaluation)
-       = Teuchos::rcp(new panzer::WorksetContainer);
-    wkstContainer->setFactory(wkstFactory);
-    for(size_t i=0;i<physics_blocks.size();i++)
-      wkstContainer->setNeeds(physics_blocks[i]->elementBlockID(),physics_blocks[i]->getWorksetNeeds());
-    wkstContainer->setWorksetSize(workset_size);
-
     // setup DOF manager
     /////////////////////////////////////////////
     const Teuchos::RCP<panzer::ConnManager> conn_manager
@@ -482,6 +467,20 @@ namespace panzer {
           = Teuchos::rcp(new panzer::DOFManagerFactory);
     const Teuchos::RCP<panzer::GlobalIndexer> dofManager
           = indexerFactory->buildGlobalIndexer(Teuchos::opaqueWrapper(MPI_COMM_WORLD),physics_blocks,conn_manager);
+
+    // setup worksets
+    /////////////////////////////////////////////
+
+     std::vector<std::string> validEBlocks;
+     mesh->getElementBlockNames(validEBlocks);
+
+    // build WorksetContainer
+    Teuchos::RCP<panzer_stk::WorksetFactory> wkstFactory
+       = Teuchos::rcp(new panzer_stk::WorksetFactory(mesh)); // build STK workset factory
+    wkstFactory->setOrientationsInterface(Teuchos::rcp(new panzer::OrientationsInterface(dofManager)));
+    Teuchos::RCP<panzer::WorksetContainer> wkstContainer     // attach it to a workset container (uses lazy evaluation)
+       = Teuchos::rcp(new panzer::WorksetContainer(wkstFactory));
+    wkstContainer->setWorksetSize(workset_size);
 
     // and linear object factory
     Teuchos::RCP<const Teuchos::MpiComm<int> > tComm = Teuchos::rcp(new Teuchos::MpiComm<int>(MPI_COMM_WORLD));

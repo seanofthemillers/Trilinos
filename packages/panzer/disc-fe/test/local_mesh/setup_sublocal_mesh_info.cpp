@@ -58,129 +58,132 @@
 
 namespace panzer {
 
-TEUCHOS_UNIT_TEST(setupSubLocalMeshInfo, basic)
+TEUCHOS_UNIT_TEST(setupSubLocalMeshInfo, empty_parent)
 {
 
   // Make sure passing the function an empty parent info throws an error
-  {
-    Teuchos::RCP<panzer::LocalMeshInfoBase> mesh(new panzer::LocalMeshInfoBase);
-    std::vector<panzer::LocalOrdinal> local_cells = {0};
-    panzer::LocalMeshInfoBase sub_mesh;
+  Teuchos::RCP<panzer::LocalMeshInfoBase> mesh(new panzer::LocalMeshInfoBase);
+  std::vector<panzer::LocalOrdinal> local_cells = {0};
+  panzer::LocalMeshInfoBase sub_mesh;
 
-    TEST_THROW(partitioning_utilities::setupSubLocalMeshInfo(*mesh,local_cells,true,sub_mesh),std::logic_error);
-  }
+  TEST_THROW(partitioning_utilities::setupSubLocalMeshInfo(*mesh,local_cells,true,sub_mesh),std::logic_error);
+}
 
+
+TEUCHOS_UNIT_TEST(setupSubLocalMeshInfo, no_cells)
+{
   // Make sure passing the function an empty set of cells throws an error
-  {
-    Teuchos::RCP<panzer::LocalMeshInfoBase> mesh = generateLocalMeshInfoBase();
-    std::vector<panzer::LocalOrdinal> local_cells = {};
-    panzer::LocalMeshInfoBase sub_mesh;
+  Teuchos::RCP<panzer::LocalMeshInfoBase> mesh = generateLocalMeshInfoBase();
+  std::vector<panzer::LocalOrdinal> local_cells = {};
+  panzer::LocalMeshInfoBase sub_mesh;
 
-    TEST_THROW(partitioning_utilities::setupSubLocalMeshInfo(*mesh,local_cells,true,sub_mesh),std::logic_error);
-  }
+  TEST_THROW(partitioning_utilities::setupSubLocalMeshInfo(*mesh,local_cells,true,sub_mesh),std::logic_error);
+}
 
+
+TEUCHOS_UNIT_TEST(setupSubLocalMeshInfo, no_connectivity)
+{
   // Make sure that we can take a valid mesh 
-  {
-    Teuchos::RCP<panzer::LocalMeshInfoBase> mesh = generateLocalMeshInfoBase();
+  Teuchos::RCP<panzer::LocalMeshInfoBase> mesh = generateLocalMeshInfoBase();
 
-    // Skip cell 1 to make it a ghost cell
-    std::vector<panzer::LocalOrdinal> n_local_cells = {0,2};
-    panzer::LocalMeshInfoBase sub_mesh;
+  // Skip cell 1 to make it a ghost cell
+  std::vector<panzer::LocalOrdinal> n_local_cells = {0,2};
+  panzer::LocalMeshInfoBase sub_mesh;
 
-    partitioning_utilities::setupSubLocalMeshInfo(*mesh,n_local_cells,false,sub_mesh);
+  partitioning_utilities::setupSubLocalMeshInfo(*mesh,n_local_cells,false,sub_mesh);
 
-    TEST_EQUALITY(sub_mesh.num_owned_cells,2);
-    TEST_EQUALITY(sub_mesh.num_ghstd_cells,0);
-    TEST_EQUALITY(sub_mesh.num_virtual_cells,0);
-    TEST_FALSE(sub_mesh.has_connectivity);
-  }
+  TEST_EQUALITY(sub_mesh.num_owned_cells,2);
+  TEST_EQUALITY(sub_mesh.num_ghstd_cells,0);
+  TEST_EQUALITY(sub_mesh.num_virtual_cells,0);
+  TEST_ASSERT(!sub_mesh.has_connectivity);
+}
 
+TEUCHOS_UNIT_TEST(setupSubLocalMeshInfo, with_connectivity)
+{
   // Make sure that we can grab a couple of the cells as a local mesh
-  {
-    Teuchos::RCP<panzer::LocalMeshInfoBase> mesh = generateLocalMeshInfoBase();
+  Teuchos::RCP<panzer::LocalMeshInfoBase> mesh = generateLocalMeshInfoBase();
 
-    // Skip cell 1 to make it a ghost cell
-    std::vector<panzer::LocalOrdinal> n_local_cells = {0,2};
-    panzer::LocalMeshInfoBase sub_mesh;
+  // Skip cell 1 to make it a ghost cell
+  std::vector<panzer::LocalOrdinal> n_local_cells = {0,2};
+  panzer::LocalMeshInfoBase sub_mesh;
 
-    partitioning_utilities::setupSubLocalMeshInfo(*mesh,n_local_cells,true,sub_mesh);
+  partitioning_utilities::setupSubLocalMeshInfo(*mesh,n_local_cells,true,sub_mesh);
 
-    TEST_EQUALITY(sub_mesh.num_owned_cells,2);
-    TEST_EQUALITY(sub_mesh.num_ghstd_cells,2);
-    TEST_EQUALITY(sub_mesh.num_virtual_cells,1);
-    TEST_TRUE(sub_mesh.has_connectivity);
+  TEST_EQUALITY(sub_mesh.num_owned_cells,2);
+  TEST_EQUALITY(sub_mesh.num_ghstd_cells,2);
+  TEST_EQUALITY(sub_mesh.num_virtual_cells,1);
+  TEST_ASSERT(sub_mesh.has_connectivity);
 
-    // The following is just an analysis of the sub mesh
-    // If any of these fail after changing the setupSubLocalMeshInfo call, it may not be because the changes were wrong.
-    // It may just be a different ordering compared to what is currently expected (that is 100% OK, this test just needs to be updated).
+  // The following is just an analysis of the sub mesh
+  // If any of these fail after changing the setupSubLocalMeshInfo call, it may not be because the changes were wrong.
+  // It may just be a different ordering compared to what is currently expected (that is 100% OK, this test just needs to be updated).
 
 
-    // What we had in 'mesh'
-    //    g   o   o   o   v
-    //  ---------------------
-    //  | 3 | 0 | 1 | 2 | 4 |
-    //  ---------------------
-    //      0   1   2   3
+  // What we had in 'mesh'
+  //    g   o   o   o   v
+  //  ---------------------
+  //  | 3 | 0 | 1 | 2 | 4 |
+  //  ---------------------
+  //      0   1   2   3
 
-    // What we expect in 'sub_mesh'
-    //    g   o   g   o   v
-    //  ---------------------
-    //  | 3 | 0 | 2 | 1 | 4 |
-    //  ---------------------
-    //      3   2   1   0
+  // What we expect in 'sub_mesh'
+  //    g   o   g   o   v
+  //  ---------------------
+  //  | 3 | 0 | 2 | 1 | 4 |
+  //  ---------------------
+  //      3   2   1   0
 
-    auto local_cells   = Kokkos::create_mirror_view(sub_mesh.local_cells);
-    auto global_cells  = Kokkos::create_mirror_view(sub_mesh.global_cells);
-    auto face_to_cells = Kokkos::create_mirror_view(sub_mesh.face_to_cells);
-    auto face_to_lidx  = Kokkos::create_mirror_view(sub_mesh.face_to_lidx);
-    auto cell_to_faces = Kokkos::create_mirror_view(sub_mesh.cell_to_faces);
-    Kokkos::deep_copy(local_cells  , sub_mesh.local_cells);
-    Kokkos::deep_copy(global_cells , sub_mesh.global_cells);
-    Kokkos::deep_copy(face_to_cells, sub_mesh.face_to_cells);
-    Kokkos::deep_copy(face_to_lidx , sub_mesh.face_to_lidx);
-    Kokkos::deep_copy(cell_to_faces, sub_mesh.cell_to_faces);
-    TEST_EQUALITY(local_cells(0),0);
-    TEST_EQUALITY(local_cells(1),2);
-    TEST_EQUALITY(local_cells(2),1);
-    TEST_EQUALITY(local_cells(3),3);
-    TEST_EQUALITY(local_cells(4),4);
+  auto local_cells   = Kokkos::create_mirror_view(sub_mesh.local_cells);
+  auto global_cells  = Kokkos::create_mirror_view(sub_mesh.global_cells);
+  auto face_to_cells = Kokkos::create_mirror_view(sub_mesh.face_to_cells);
+  auto face_to_lidx  = Kokkos::create_mirror_view(sub_mesh.face_to_lidx);
+  auto cell_to_faces = Kokkos::create_mirror_view(sub_mesh.cell_to_faces);
+  Kokkos::deep_copy(local_cells  , sub_mesh.local_cells);
+  Kokkos::deep_copy(global_cells , sub_mesh.global_cells);
+  Kokkos::deep_copy(face_to_cells, sub_mesh.face_to_cells);
+  Kokkos::deep_copy(face_to_lidx , sub_mesh.face_to_lidx);
+  Kokkos::deep_copy(cell_to_faces, sub_mesh.cell_to_faces);
+  TEST_EQUALITY(local_cells(0),0);
+  TEST_EQUALITY(local_cells(1),2);
+  TEST_EQUALITY(local_cells(2),1);
+  TEST_EQUALITY(local_cells(3),3);
+  TEST_EQUALITY(local_cells(4),4);
 
-    TEST_EQUALITY(global_cells(0),8);
-    TEST_EQUALITY(global_cells(1),2);
-    TEST_EQUALITY(global_cells(2),6);
-    TEST_EQUALITY(global_cells(3),1);
-    TEST_EQUALITY(global_cells(4),9);
+  TEST_EQUALITY(global_cells(0),8);
+  TEST_EQUALITY(global_cells(1),2);
+  TEST_EQUALITY(global_cells(2),6);
+  TEST_EQUALITY(global_cells(3),1);
+  TEST_EQUALITY(global_cells(4),9);
 
-    TEST_EQUALITY(face_to_cells(0,0),1);
-    TEST_EQUALITY(face_to_cells(0,1),4);
-    TEST_EQUALITY(face_to_cells(1,0),1);
-    TEST_EQUALITY(face_to_cells(1,1),2);
-    TEST_EQUALITY(face_to_cells(2,0),0);
-    TEST_EQUALITY(face_to_cells(2,1),2);
-    TEST_EQUALITY(face_to_cells(3,0),0);
-    TEST_EQUALITY(face_to_cells(3,1),3);
+  TEST_EQUALITY(face_to_cells(0,0),1);
+  TEST_EQUALITY(face_to_cells(0,1),4);
+  TEST_EQUALITY(face_to_cells(1,0),1);
+  TEST_EQUALITY(face_to_cells(1,1),2);
+  TEST_EQUALITY(face_to_cells(2,0),0);
+  TEST_EQUALITY(face_to_cells(2,1),2);
+  TEST_EQUALITY(face_to_cells(3,0),0);
+  TEST_EQUALITY(face_to_cells(3,1),3);
 
-    TEST_EQUALITY(face_to_lidx(0,0),1);
-    TEST_EQUALITY(face_to_lidx(0,1),0);
-    TEST_EQUALITY(face_to_lidx(1,0),0);
-    TEST_EQUALITY(face_to_lidx(1,1),1);
-    TEST_EQUALITY(face_to_lidx(2,0),1);
-    TEST_EQUALITY(face_to_lidx(2,1),0);
-    TEST_EQUALITY(face_to_lidx(3,0),0);
-    TEST_EQUALITY(face_to_lidx(3,1),0);
+  TEST_EQUALITY(face_to_lidx(0,0),1);
+  TEST_EQUALITY(face_to_lidx(0,1),0);
+  TEST_EQUALITY(face_to_lidx(1,0),0);
+  TEST_EQUALITY(face_to_lidx(1,1),1);
+  TEST_EQUALITY(face_to_lidx(2,0),1);
+  TEST_EQUALITY(face_to_lidx(2,1),0);
+  TEST_EQUALITY(face_to_lidx(3,0),0);
+  TEST_EQUALITY(face_to_lidx(3,1),0);
 
-    TEST_EQUALITY(cell_to_faces(0,0),3);
-    TEST_EQUALITY(cell_to_faces(0,1),2);
-    TEST_EQUALITY(cell_to_faces(1,0),1);
-    TEST_EQUALITY(cell_to_faces(1,1),0);
-    TEST_EQUALITY(cell_to_faces(2,0),2);
-    TEST_EQUALITY(cell_to_faces(2,1),1);
-    TEST_EQUALITY(cell_to_faces(3,0),3);
-    TEST_EQUALITY(cell_to_faces(3,1),-1);
-    TEST_EQUALITY(cell_to_faces(4,0),0);
-    TEST_EQUALITY(cell_to_faces(4,1),-1);
+  TEST_EQUALITY(cell_to_faces(0,0),3);
+  TEST_EQUALITY(cell_to_faces(0,1),2);
+  TEST_EQUALITY(cell_to_faces(1,0),1);
+  TEST_EQUALITY(cell_to_faces(1,1),0);
+  TEST_EQUALITY(cell_to_faces(2,0),2);
+  TEST_EQUALITY(cell_to_faces(2,1),1);
+  TEST_EQUALITY(cell_to_faces(3,0),3);
+  TEST_EQUALITY(cell_to_faces(3,1),-1);
+  TEST_EQUALITY(cell_to_faces(4,0),0);
+  TEST_EQUALITY(cell_to_faces(4,1),-1);
 
-  }
 }
 
 } // end namespace panzer

@@ -54,7 +54,7 @@ template <typename ScalarT>
 class PointEvaluation {
 public:
    // virtual void evaluateContainer(const Kokkos::DynRankView<double,PHX::Device> & points,
-   virtual void evaluateContainer(const PHX::MDField<ScalarT,panzer::Cell,panzer::IP,panzer::Dim> & points,
+   virtual void evaluateContainer(const PHX::MDField<const ScalarT,panzer::Cell,panzer::IP,panzer::Dim> & points,
                                   PHX::MDField<ScalarT> & field) const = 0;
 };
 
@@ -70,11 +70,6 @@ class PointEvaluator
       const Teuchos::ParameterList& p);
 
     void
-    postRegistrationSetup(
-      typename Traits::SetupData d,
-      PHX::FieldManager<Traits>& fm);
-
-    void
     evaluateFields(
       typename Traits::EvalData d);
 
@@ -86,8 +81,7 @@ class PointEvaluator
   PHX::MDField<ScalarT> vectorField;
 
   bool isVector;
-  int quad_order;
-  int quad_index;
+  panzer::IntegrationDescriptor id_;
   Teuchos::RCP<const PointEvaluation<ScalarT> > function;
 }; // end of class PointEvaluator
 
@@ -104,8 +98,7 @@ PointEvaluator(
      = p.get< Teuchos::RCP<panzer::IntegrationRule> >("IR");
   isVector = p.get<bool>("Is Vector");
   function = p.get<Teuchos::RCP<const PointEvaluation<ScalarT> > >("Point Evaluator");
-
-  quad_order = ir->cubature_degree;
+  id_ = *ir;
 
   // grab information from quadrature rule
   if(isVector) {
@@ -117,20 +110,8 @@ PointEvaluator(
      this->addEvaluatedField(scalar);
   }
 
-
   std::string n = "PointEvaluator: " + name;
   this->setName(n);
-}
-
-//**********************************************************************
-template<typename EvalT, typename Traits>
-void
-PointEvaluator<EvalT, Traits>::
-postRegistrationSetup(
-  typename Traits::SetupData sd,
-  PHX::FieldManager<Traits>& /* fm */)
-{
-  quad_index =  panzer::getIntegrationRuleIndex(quad_order,(*sd.worksets_)[0], this->wda);
 }
 
 //**********************************************************************
@@ -140,10 +121,8 @@ PointEvaluator<EvalT, Traits>::
 evaluateFields(
   typename Traits::EvalData workset)
 {
-   if(isVector)
-      function->evaluateContainer(this->wda(workset).int_rules[quad_index]->ip_coordinates,vectorField);
-   else 
-      function->evaluateContainer(this->wda(workset).int_rules[quad_index]->ip_coordinates,vectorField);
+  auto points = this->wda(workset).getIntegrationValues(id_).getCubaturePoints();
+  function->evaluateContainer(points,vectorField);
 }
 
 //**********************************************************************

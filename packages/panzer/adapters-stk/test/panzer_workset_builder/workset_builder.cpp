@@ -558,7 +558,7 @@ namespace panzer {
       Kokkos::deep_copy(nodes, nodes_h);
 
       const auto pb = panzer::findPhysicsBlock(bc.elementBlockID(),physicsBlocks);
-      const auto workset = buildBCWorkset(pb->getWorksetNeeds(),bc.elementBlockID(), local_cell_ids, local_side_ids, nodes);
+      const auto workset = buildBCWorkset(pb->getWorksetNeeds(),bc.elementBlockID(), bc.sidesetID(), local_cell_ids, local_side_ids, nodes);
 
       bc_worksets.push_back(workset);
     }

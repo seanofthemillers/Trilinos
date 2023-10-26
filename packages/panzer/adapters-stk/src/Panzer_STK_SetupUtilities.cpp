@@ -52,7 +52,8 @@ namespace panzer_stk {
 Teuchos::RCP<std::vector<panzer::Workset> >  
 buildWorksets(const panzer_stk::STK_Interface & mesh,
               const std::string & eBlock,
-              const panzer::WorksetNeeds & needs)
+              const panzer::WorksetNeeds & needs,
+              Teuchos::RCP<const panzer::OrientationsInterface> orientations)
 {
   using namespace workset_utils;
 
@@ -67,7 +68,7 @@ buildWorksets(const panzer_stk::STK_Interface & mesh,
   // this may be processor dependent, so an element block
   // may not have elements and thus no contribution
   // on this processor
-  return panzer::buildWorksets(needs, eBlock, local_cell_ids, cell_node_coordinates);
+  return panzer::buildWorksets(needs, eBlock, local_cell_ids, cell_node_coordinates,orientations);
 }
 
 Teuchos::RCP<std::vector<panzer::Workset> >  
@@ -75,7 +76,8 @@ buildWorksets(const panzer_stk::STK_Interface & mesh,
               const panzer::WorksetNeeds & needs,
               const std::string & sideset,
               const std::string & eBlock,
-              bool useCascade)
+              bool useCascade,
+              Teuchos::RCP<const panzer::OrientationsInterface> orientations)
 {
   using namespace workset_utils;
   using Teuchos::RCP;
@@ -169,14 +171,9 @@ buildWorksets(const panzer_stk::STK_Interface & mesh,
       Kokkos::DynRankView<double,PHX::Device> nodes;
       mesh.getElementNodes(itr->second,eBlock,nodes);
   
+      // These are volumetric worksets with a subcell description
       Teuchos::RCP<std::vector<panzer::Workset> > current
-         = panzer::buildWorksets(needs, eBlock, itr->second, nodes);
-
-      // correct worksets so the sides are correct
-      for(std::size_t w=0;w<current->size();w++) {
-        (*current)[w].subcell_dim = itr->first.first;
-        (*current)[w].subcell_index = itr->first.second;
-      }
+         = panzer::buildSubcellWorksets(needs, eBlock, false, itr->first.first, itr->first.second, itr->second, nodes, orientations);
 
       // append new worksets
       worksets->insert(worksets->end(),current->begin(),current->end());
@@ -195,7 +192,8 @@ buildBCWorksets(const panzer_stk::STK_Interface & mesh,
                 const std::string & blockid_a,
                 const panzer::WorksetNeeds & needs_b,
                 const std::string & blockid_b,
-                const std::string & sideset)
+                const std::string & sideset,
+                Teuchos::RCP<const panzer::OrientationsInterface> orientations)
 {
   using namespace workset_utils;
   using Teuchos::RCP;
@@ -274,15 +272,18 @@ buildBCWorksets(const panzer_stk::STK_Interface & mesh,
   mesh.getElementNodes(local_cell_ids_b,blockid_b,node_coordinates_b);
 
   // worksets to be returned
-  return buildBCWorkset(needs_a,blockid_a, local_cell_ids_a, local_side_ids_a, node_coordinates_a,
-                        needs_b,blockid_b, local_cell_ids_b, local_side_ids_b, node_coordinates_b);
+  return buildBCWorkset(sideset,
+                        needs_a,blockid_a, local_cell_ids_a, local_side_ids_a, node_coordinates_a,
+                        needs_b,blockid_b, local_cell_ids_b, local_side_ids_b, node_coordinates_b, 
+                        orientations);
 }
 
 Teuchos::RCP<std::map<unsigned,panzer::Workset> >
 buildBCWorksets(const panzer_stk::STK_Interface & mesh,
                 const panzer::WorksetNeeds & needs,
                 const std::string & eblockID,
-                const std::string & sidesetID)
+                const std::string & sidesetID,
+                Teuchos::RCP<const panzer::OrientationsInterface> orientations)
 {
   using namespace workset_utils;
   using Teuchos::RCP;
@@ -348,8 +349,12 @@ buildBCWorksets(const panzer_stk::STK_Interface & mesh,
 
       Kokkos::DynRankView<double,PHX::Device> nodes;
       mesh.getElementNodes(local_cell_ids,eblockID,nodes);
+
+      // FIXME: Currently the only way to pass the mesh topology to panzer is through WorksetNeeds
+      panzer::WorksetNeeds tmpNeeds = needs;
+      tmpNeeds.cellData = panzer::CellData(nodes.extent(0),topo);
   
-      return panzer::buildBCWorkset(needs, eblockID, local_cell_ids, local_side_ids, nodes);
+      return panzer::buildBCWorkset(tmpNeeds, eblockID, sidesetID, local_cell_ids, local_side_ids, nodes, true, orientations);
   }
   
   return Teuchos::null;

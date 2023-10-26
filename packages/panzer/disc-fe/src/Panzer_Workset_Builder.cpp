@@ -52,20 +52,35 @@ Teuchos::RCP<std::vector<panzer::Workset> >
 panzer::buildWorksets(const WorksetNeeds & needs,
                       const std::string & elementBlock,
                       const std::vector<std::size_t>& local_cell_ids,
-                      const Kokkos::DynRankView<double,PHX::Device>& node_coordinates);
+                      const Kokkos::DynRankView<double,PHX::Device>& node_coordinates,
+                      Teuchos::RCP<const panzer::OrientationsInterface> orientations);
+
+template
+Teuchos::RCP<std::vector<panzer::Workset> > 
+panzer::buildSubcellWorksets(const WorksetNeeds & needs,
+                             const std::string & elementBlock,
+                             const bool subcell_assembly,
+                             const int subcell_dim,
+                             const int subcell_index,
+                             const std::vector<std::size_t>& local_cell_ids,
+                             const Kokkos::DynRankView<double,PHX::Device>& node_coordinates,
+                             Teuchos::RCP<const panzer::OrientationsInterface> orientations = Teuchos::null);
 
 template
 Teuchos::RCP<std::map<unsigned,panzer::Workset> >
 panzer::buildBCWorkset(const WorksetNeeds& needs,
                        const std::string& elementBlock,
+                       const std::string & sideset,
                        const std::vector<std::size_t>& local_cell_ids,
                        const std::vector<std::size_t>& local_side_ids,
                        const Kokkos::DynRankView<double,PHX::Device>& node_coordinates,
-                       const bool populate_value_arrays);
+                       const bool populate_value_arrays,
+                       Teuchos::RCP<const panzer::OrientationsInterface> orientations);
 
 template
 Teuchos::RCP<std::map<unsigned,panzer::Workset> >
-panzer::buildBCWorkset(const WorksetNeeds & needs_a,
+panzer::buildBCWorkset(const std::string & sideset,
+                       const WorksetNeeds & needs_a,
                        const std::string & blockid_a,
                        const std::vector<std::size_t>& local_cell_ids_a,
                        const std::vector<std::size_t>& local_side_ids_a,
@@ -74,7 +89,8 @@ panzer::buildBCWorkset(const WorksetNeeds & needs_a,
                        const std::string & blockid_b,
                        const std::vector<std::size_t>& local_cell_ids_b,
                        const std::vector<std::size_t>& local_side_ids_b,
-                       const Kokkos::DynRankView<double,PHX::Device> & node_coordinates_b);
+                       const Kokkos::DynRankView<double,PHX::Device> & node_coordinates_b,
+                       Teuchos::RCP<const panzer::OrientationsInterface> orientations);
 
 template
 Teuchos::RCP<std::vector<panzer::Workset> > 

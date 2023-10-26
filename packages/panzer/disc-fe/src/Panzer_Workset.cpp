@@ -80,31 +80,7 @@ void buildLocalOrientations(const int num_cells,
   for(int i=0; i<num_cells; ++i)
     workset_orientations[i] = local_orientations[local_cell_ids_host[i]];
 }
-
-void
-applyBV2Orientations(const int num_cells,
-                     BasisValues2<double> & basis_values,
-                     const Kokkos::View<const panzer::LocalOrdinal*,PHX::Device> & local_cell_ids,
-                     const Teuchos::RCP<const OrientationsInterface> & orientations_interface)
-{
-  // This call exists because there is a middle man we have to go through.
-  // orientations_interface is a 'local' object, not a workset object so we need to map local cells to workset cells
-
-  // If the object doesn't exist, feel free to skip applying orientations, they aren't needed in some cases (e.g. DG/FV)
-  if(orientations_interface.is_null())
-    return;
-
-  // Ignore this operation if it has already been applied
-  if(basis_values.orientationsApplied())
-    return;
-
-  // pull out the subset of orientations required for this workset
-  std::vector<Intrepid2::Orientation> workset_orientations(num_cells);
-  buildLocalOrientations(num_cells,local_cell_ids,orientations_interface, workset_orientations);
-
-  basis_values.applyOrientations(workset_orientations,num_cells);
-}
-
+  
 }
 
 WorksetDetails::
@@ -164,7 +140,7 @@ setup(const panzer::LocalMeshPartition & partition,
   // Allocate and fill the cell nodes
   {
     // Double check this
-    TEUCHOS_ASSERT(partition.cell_nodes.Rank == 3);
+    TEUCHOS_ASSERT(partition.cell_nodes.rank == 3);
 
     // Grab the size of the cell node array
     const int num_partition_cells = partition.cell_nodes.extent(0);
@@ -420,7 +396,7 @@ getBasisValues(const panzer::BasisDescriptor & basis_description,
       }
     }
 
-    applyBV2Orientations(numOwnedCells()+numGhostCells(),*biv,getLocalCellIDs(),options_.orientations_);
+    biv->applyOrientations(numOwnedCells()+numGhostCells(), options_.orientations_,getLocalCellIDs());
 
   }
 
@@ -525,7 +501,7 @@ getBasisValues(const panzer::BasisDescriptor & basis_description,
     // TODO: We call this separately due to how BasisValues2 is structured - needs to be streamlined
     bpv->evaluateBasisCoordinates(getCellNodes(),numCells());
 
-    applyBV2Orientations(numOwnedCells()+numGhostCells(),*bpv, getLocalCellIDs(), options_.orientations_);
+    bpv->applyOrientations(numOwnedCells()+numGhostCells(),options_.orientations_,getLocalCellIDs());
 
   }
 

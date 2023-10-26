@@ -98,6 +98,12 @@ setNeeds(const std::string & eBlock,const WorksetNeeds & needs)
   ebToNeeds_[eBlock] = needs;
 }
 
+bool WorksetContainer::
+hasNeeds(const std::string & eBlock) const 
+{
+  return ebToNeeds_.find(eBlock) != ebToNeeds_.end();
+}
+
 //! Look up an input physics block, throws an exception if it can be found.
 const WorksetNeeds & WorksetContainer::lookupNeeds(const std::string & eBlock) const
 {
@@ -118,7 +124,7 @@ WorksetContainer::getWorksets(const WorksetDescriptor & wd)
    if(itr==worksets_.end()) {
       // couldn't find workset, build it!
       WorksetNeeds needs;
-      if(hasNeeds())
+      if(hasNeeds(wd.getElementBlock()))
         needs = lookupNeeds(wd.getElementBlock());
 
       // FIXME: Terrible workaround for overriding workset size in a descriptor
@@ -130,7 +136,9 @@ WorksetContainer::getWorksets(const WorksetDescriptor & wd)
       worksetVector = wkstFactory_->getWorksets(fake_wd,needs);
 
       // apply orientations to the just constructed worksets
-      if(worksetVector!=Teuchos::null && wd.applyOrientations()) {
+      if(worksetVector!=Teuchos::null && 
+         wd.applyOrientations() && 
+         (wkstFactory_->getOrientationsInterface() == Teuchos::null)) {
         applyOrientations(wd.getElementBlock(),*worksetVector);
       }
 
@@ -162,11 +170,16 @@ WorksetContainer::getSideWorksets(const WorksetDescriptor & desc)
                                                          lookupNeeds(desc.getElementBlock(1)));
       }
       else {
-        worksetMap = wkstFactory_->getSideWorksets(desc,lookupNeeds(desc.getElementBlock(0)));
+        panzer::WorksetNeeds needs;
+        if(hasNeeds(desc.getElementBlock(0)))
+          needs = lookupNeeds(desc.getElementBlock(0));
+        worksetMap = wkstFactory_->getSideWorksets(desc,needs);
       }
 
       // apply orientations to the worksets for this side
-      if(worksetMap!=Teuchos::null)
+      if(worksetMap!=Teuchos::null && 
+         desc.applyOrientations() && 
+         (wkstFactory_->getOrientationsInterface() == Teuchos::null))
         applyOrientations(desc,*worksetMap);
 
       if(worksetMap!=Teuchos::null)
@@ -186,6 +199,7 @@ WorksetContainer::getSideWorksets(const WorksetDescriptor & desc)
 void WorksetContainer::
 setGlobalIndexer(const Teuchos::RCP<const panzer::GlobalIndexer> & ugi)
 {
+
   // apply the orientations for stored worksets
   applyOrientations(ugi);
 }
@@ -304,7 +318,7 @@ applyOrientations(const std::string & eBlock, std::vector<Workset> & worksets) c
       // no need for this if orientations are not required!
       if(!basis.requiresOrientations())
         continue;
-  
+
       // build accessors for orientation fields
       std::vector<Intrepid2::Orientation> ortsPerBlock;
   

@@ -231,13 +231,21 @@ evaluateFields(
 
   // this can be over-ridden in basisValues e.g., DG element setting
   if(basis->requiresOrientations()) {
-    const WorksetDetails & details = workset;
+    if(orientations != Teuchos::null){
+      const WorksetDetails & details = workset;
+      
+      std::vector<Intrepid2::Orientation> ortPerWorkset;
+      for (index_t c=0;c<workset.num_cells;++c)
+        ortPerWorkset.push_back((*orientations)[details.cell_local_ids[c]]);
+      
+      basisValues->applyOrientations(ortPerWorkset, (int) workset.num_cells);
+    } else {
+      TEUCHOS_ASSERT(workset.getOrientationsInterface() != Teuchos::null)
+      basisValues->applyOrientations(workset.num_cells,
+                                     workset.getOrientationsInterface(),
+                                     workset.getLocalCellIDs());
+    }
     
-    std::vector<Intrepid2::Orientation> ortPerWorkset;
-    for (index_t c=0;c<workset.num_cells;++c)
-      ortPerWorkset.push_back((*orientations)[details.cell_local_ids[c]]);
-    
-    basisValues->applyOrientations(ortPerWorkset, (int) workset.num_cells);
   }
 }
 

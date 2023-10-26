@@ -138,6 +138,9 @@ public:
      */
    void clearSideWorksets();
 
+   //! Check to see if a needs has been added for a given workset
+   bool hasNeeds(const std::string & eBlock) const;
+
    //! Look up an input physics block, throws an exception if it can not be found.
    const WorksetNeeds & lookupNeeds(const std::string & eBlock) const;
 

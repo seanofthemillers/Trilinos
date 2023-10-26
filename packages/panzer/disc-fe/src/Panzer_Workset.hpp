@@ -320,6 +320,11 @@ namespace panzer {
                           const int ghost_cells,
                           const int virtual_cells);
 
+    /// Get access to the OrientationsInterface for the local mesh
+    Teuchos::RCP<const panzer::OrientationsInterface>
+    getOrientationsInterface() const
+    {return options_.orientations_;}
+
   protected:
 
     bool setup_;

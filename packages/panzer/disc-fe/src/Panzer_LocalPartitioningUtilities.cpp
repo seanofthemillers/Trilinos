@@ -545,6 +545,7 @@ setupSubLocalMeshInfo(const panzer::LocalMeshInfoBase & parent_info,
   sub_info.num_owned_cells = owned_parent_cells.size();
   sub_info.num_ghstd_cells = ghstd_parent_cells.size();
   sub_info.num_virtual_cells = virtual_parent_cells.size();
+  sub_info.has_connectivity = requires_connectivity;
 
   // We now have the indexing order for our sub_info
 
