@@ -117,82 +117,92 @@ const WorksetNeeds & WorksetContainer::lookupNeeds(const std::string & eBlock) c
 }
 
 Teuchos::RCP<std::vector<Workset> >
-WorksetContainer::getWorksets(const WorksetDescriptor & wd)
+WorksetContainer::getWorksets(const WorksetDescriptor & in_wd)
 {
-   Teuchos::RCP<std::vector<Workset> > worksetVector;
-   WorksetMap::iterator itr = worksets_.find(wd);
-   if(itr==worksets_.end()) {
-      // couldn't find workset, build it!
-      WorksetNeeds needs;
-      if(hasNeeds(wd.getElementBlock()))
-        needs = lookupNeeds(wd.getElementBlock());
+  // As long as WorksetContainer owns the workset size, 
+  // all descriptors need to map to the size in the container
+  panzer::WorksetDescriptor wd = in_wd;
+  if(worksetSize_ > 0)
+    wd.setWorksetSize(worksetSize_);
 
-      // FIXME: Terrible workaround for overriding workset size in a descriptor
-      // The WorksetContainer is able to override the workset size in the descriptor
-      WorksetDescriptor fake_wd = wd;
-      if(worksetSize_ > 0)
-        fake_wd.setWorksetSize(worksetSize_);
+  Teuchos::RCP<std::vector<Workset> > worksetVector;
+  WorksetMap::iterator itr = worksets_.find(wd);
+  if(itr==worksets_.end()) {
+    // couldn't find workset, build it!
+    WorksetNeeds needs;
+    if(hasNeeds(wd.getElementBlock()))
+      needs = lookupNeeds(wd.getElementBlock());
 
-      worksetVector = wkstFactory_->getWorksets(fake_wd,needs);
+    worksetVector = wkstFactory_->getWorksets(wd,needs);
 
-      // apply orientations to the just constructed worksets
-      if(worksetVector!=Teuchos::null && 
-         wd.applyOrientations() && 
-         (wkstFactory_->getOrientationsInterface() == Teuchos::null)) {
-        applyOrientations(wd.getElementBlock(),*worksetVector);
-      }
+    // apply orientations to the just constructed worksets
+    if(worksetVector!=Teuchos::null && 
+        wd.applyOrientations() && 
+        (wkstFactory_->getOrientationsInterface() == Teuchos::null)) {
+      applyOrientations(wd.getElementBlock(),*worksetVector);
+    }
 
-      if(worksetVector!=Teuchos::null)
-        setIdentifiers(wd,*worksetVector);
+    if(worksetVector!=Teuchos::null)
+      setIdentifiers(wd,*worksetVector);
 
-      // store vector for reuse in the future
-      worksets_[wd] = worksetVector;
-   }
-   else
-      worksetVector = itr->second;
+    // store vector for reuse in the future
+    worksets_[wd] = worksetVector;
+  }
+  else
+    worksetVector = itr->second;
 
-   return worksetVector;
+  return worksetVector;
 }
 
 //! Access, and construction of side worksets
 Teuchos::RCP<std::map<unsigned,Workset> >
-WorksetContainer::getSideWorksets(const WorksetDescriptor & desc)
+WorksetContainer::getSideWorksets(const WorksetDescriptor & in_wd)
 {
-   Teuchos::RCP<std::map<unsigned,Workset> > worksetMap;
 
-   // this is the key for the workset map
-   SideMap::iterator itr = sideWorksets_.find(desc);
+  // As long as WorksetContainer owns the workset size, 
+  // all descriptors need to map to the size in the container
+  // Note that side worksets don't use the size, but we need to
+  // keep the size consistent in the descriptor since it is used
+  // to search through existing worksets
+  panzer::WorksetDescriptor wd = in_wd;
+  if(worksetSize_ > 0)
+    wd.setWorksetSize(worksetSize_);
 
-   if(itr==sideWorksets_.end()) {
-      // couldn't find workset, build it!
-      if (desc.connectsElementBlocks()) {
-        worksetMap = wkstFactory_->getSideWorksets(desc, lookupNeeds(desc.getElementBlock(0)),
-                                                         lookupNeeds(desc.getElementBlock(1)));
-      }
-      else {
-        panzer::WorksetNeeds needs;
-        if(hasNeeds(desc.getElementBlock(0)))
-          needs = lookupNeeds(desc.getElementBlock(0));
-        worksetMap = wkstFactory_->getSideWorksets(desc,needs);
-      }
+  Teuchos::RCP<std::map<unsigned,Workset> > worksetMap;
 
-      // apply orientations to the worksets for this side
-      if(worksetMap!=Teuchos::null && 
-         desc.applyOrientations() && 
-         (wkstFactory_->getOrientationsInterface() == Teuchos::null))
-        applyOrientations(desc,*worksetMap);
+  // this is the key for the workset map
+  SideMap::iterator itr = sideWorksets_.find(wd);
 
-      if(worksetMap!=Teuchos::null)
-        setIdentifiers(desc,*worksetMap);
+  if(itr==sideWorksets_.end()) {
+    // couldn't find workset, build it!
+    if (wd.connectsElementBlocks()) {
+      worksetMap = wkstFactory_->getSideWorksets(wd, lookupNeeds(wd.getElementBlock(0)),
+                                                     lookupNeeds(wd.getElementBlock(1)));
+    }
+    else {
+      panzer::WorksetNeeds needs;
+      if(hasNeeds(wd.getElementBlock(0)))
+        needs = lookupNeeds(wd.getElementBlock(0));
+      worksetMap = wkstFactory_->getSideWorksets(wd,needs);
+    }
 
-      // store map for reuse in the future
-      sideWorksets_[desc] = worksetMap;
-   }
-   else {
-      worksetMap = itr->second;
-   }
+    // apply orientations to the worksets for this side
+    if(worksetMap!=Teuchos::null && 
+        wd.applyOrientations() && 
+        (wkstFactory_->getOrientationsInterface() == Teuchos::null))
+      applyOrientations(wd,*worksetMap);
 
-   return worksetMap;
+    if(worksetMap!=Teuchos::null)
+      setIdentifiers(wd,*worksetMap);
+
+    // store map for reuse in the future
+    sideWorksets_[wd] = worksetMap;
+  }
+  else {
+    worksetMap = itr->second;
+  }
+
+  return worksetMap;
 }
 
 

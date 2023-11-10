@@ -518,6 +518,7 @@ int main_(Teuchos::CommandLineProcessor &clp, int argc,char * argv[])
       responseIndexToName[respIndex] = name;
     }
 
+    std::cout << "XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX 1 XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX" << std::endl;
 
     {
       Teuchos::TimeMonitor tMphysicsEval(*Teuchos::TimeMonitor::getNewTimer(std::string("Mini-EM: setup physics model evaluator")));
@@ -533,6 +534,8 @@ int main_(Teuchos::CommandLineProcessor &clp, int argc,char * argv[])
       for(panzer::GlobalEvaluationDataContainer::const_iterator itr=auxGlobalData->begin();itr!=auxGlobalData->end();++itr)
         physicsME->addNonParameterGlobalEvaluationData(itr->first,itr->second);
     }
+
+    std::cout << "XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX 2 XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX" << std::endl;
 
     {
       Teuchos::TimeMonitor tMauxphysicsEval(*Teuchos::TimeMonitor::getNewTimer(std::string("Mini-EM: setup auxiliary physics model evaluator")));
@@ -550,6 +553,8 @@ int main_(Teuchos::CommandLineProcessor &clp, int argc,char * argv[])
         auxPhysicsME->addNonParameterGlobalEvaluationData(itr->first,itr->second);
     }
 
+    std::cout << "XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX 3 XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX" << std::endl;
+
     {
       Teuchos::TimeMonitor tMauxphysicsEval(*Teuchos::TimeMonitor::getNewTimer(std::string("Mini-EM: eval auxiliary physics model evaluator")));
       Thyra::ModelEvaluatorBase::InArgs<Scalar> auxInArgs = auxPhysicsME->getNominalValues();
@@ -560,6 +565,8 @@ int main_(Teuchos::CommandLineProcessor &clp, int argc,char * argv[])
       auxPhysicsME->evalModel(auxInArgs, auxOutArgs);
     }
 
+    std::cout << "XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX 4 XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX" << std::endl;
+
     // setup a response library to write to the mesh
     RCP<panzer::ResponseLibrary<panzer::Traits> > stkIOResponseLibrary
       = buildSTKIOResponseLibrary(physicsBlocks,linObjFactory,wkstContainer,dofManager,cm_factory,mesh,
@@ -568,6 +575,8 @@ int main_(Teuchos::CommandLineProcessor &clp, int argc,char * argv[])
     // set up the model evaluator
     Thyra::ModelEvaluatorBase::InArgs<Scalar> inArgs = physicsME->createInArgs();
     Thyra::ModelEvaluatorBase::OutArgs<Scalar> outArgs = physicsME->createOutArgs();
+
+    std::cout << "XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX 5 XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX" << std::endl;
 
     // We are setting up a model evaluator for
     // f(x_dot, x, t) = M*x_dot + A*x - rhs
@@ -601,6 +610,8 @@ int main_(Teuchos::CommandLineProcessor &clp, int argc,char * argv[])
       // compute the jacobian matrix only once
       outArgs.set_W(Teuchos::null);
 
+      std::cout << "XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX 6 XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX" << std::endl;
+
     // set up the solution vector, and residual
     RCP<Thyra::VectorBase<Scalar> > solution_vec = Thyra::createMember(physicsME->get_x_space());
     // initial condition is zero
@@ -620,6 +631,7 @@ int main_(Teuchos::CommandLineProcessor &clp, int argc,char * argv[])
       respOutArgs.set_g(i,response);
     }
 
+    std::cout << "XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX 7 XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX" << std::endl;
 
     if (exodus_output)
       writeToExodus<Scalar>(0,solution_vec,*physicsME,*stkIOResponseLibrary,*mesh);
@@ -693,6 +705,8 @@ int main_(Teuchos::CommandLineProcessor &clp, int argc,char * argv[])
     }
   }
 
+  std::cout << "XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX 8 XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX" << std::endl;
+
   // Output timer data
   if (use_stacked_timer) {
     stacked_timer->stop("Mini-EM");
@@ -704,6 +718,8 @@ int main_(Teuchos::CommandLineProcessor &clp, int argc,char * argv[])
       std::cout << "\nAlso created Watchr performance report " << xmlOut << '\n';
   } else
     Teuchos::TimeMonitor::summarize(*out,false,true,false,Teuchos::Union,"",true);
+
+  std::cout << "XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX 9 XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX" << std::endl;
 
   return EXIT_SUCCESS;
 }
