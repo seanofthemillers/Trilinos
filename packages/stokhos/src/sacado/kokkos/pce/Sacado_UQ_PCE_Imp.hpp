@@ -392,7 +392,7 @@ operator*=(const PCE<Storage>& x)
   const ordinal_type sz = this->size();
   const ordinal_type csz = sz > xsz ? sz : xsz;
 
-#if !defined(__CUDA_ARCH__)
+#if !(defined(__CUDA_ARCH__) || defined(__HIP_DEVICE_COMPILE__))
   TEUCHOS_TEST_FOR_EXCEPTION(
     sz != xsz && sz != 1 && xsz != 1, std::logic_error,
     "Sacado::UQ::PCE::operator*=(): input sizes do not match");
@@ -401,7 +401,7 @@ operator*=(const PCE<Storage>& x)
   if (cijk_.is_empty() && !x.cijk_.is_empty())
     cijk_ = x.cijk_;
 
-#if !defined(__CUDA_ARCH__)
+#if !(defined(__CUDA_ARCH__) || defined(__HIP_DEVICE_COMPILE__))
   TEUCHOS_TEST_FOR_EXCEPTION(
     cijk_.is_empty() && csz != 1, std::logic_error,
     "Sacado::UQ::PCE::operator*(): empty cijk but expansion size > 1");
@@ -452,7 +452,7 @@ operator/=(const PCE<Storage>& x)
   const ordinal_type sz = this->size();
   const ordinal_type csz = sz > xsz ? sz : xsz;
 
-#if !defined(__CUDA_ARCH__)
+#if !(defined(__CUDA_ARCH__) || defined(__HIP_DEVICE_COMPILE__))
   TEUCHOS_TEST_FOR_EXCEPTION(
     sz != xsz && sz != 1 && xsz != 1, std::logic_error,
     "Sacado::UQ::PCE::operator/=(): input sizes do not match");
@@ -467,13 +467,13 @@ operator/=(const PCE<Storage>& x)
   const_pointer xc = x.coeff();
   pointer cc = this->coeff();
 
-#if defined(__CUDA_ARCH__)
+#if defined(__CUDA_ARCH__) || defined(__HIP_DEVICE_COMPILE__)
   const value_type xcz = xc[0];
     for (ordinal_type i=0; i<sz; ++i)
       cc[i] /= xcz;
 #endif
 
-#if !defined(__CUDA_ARCH__)
+#if !(defined(__CUDA_ARCH__) || defined(__HIP_DEVICE_COMPILE__))
   if (xsz == 1) {//constant denom
     const value_type xcz = xc[0];
     for (ordinal_type i=0; i<sz; ++i)
@@ -657,7 +657,7 @@ operator*(const PCE<Storage>& a, const PCE<Storage>& b)
   const ordinal_type bsz = b.size();
   const ordinal_type csz = asz > bsz ? asz : bsz;
 
-#if !defined(__CUDA_ARCH__)
+#if !(defined(__CUDA_ARCH__) || defined(__HIP_DEVICE_COMPILE__))
   TEUCHOS_TEST_FOR_EXCEPTION(
     asz != bsz && asz != 1 && bsz != 1, std::logic_error,
     "Sacado::UQ::PCE::operator*(): input sizes do not match");
@@ -665,7 +665,7 @@ operator*(const PCE<Storage>& a, const PCE<Storage>& b)
 
   my_cijk_type c_cijk = a.cijk().is_empty() ? b.cijk() : a.cijk();
 
-#if !defined(__CUDA_ARCH__)
+#if !(defined(__CUDA_ARCH__) || defined(__HIP_DEVICE_COMPILE__))
   TEUCHOS_TEST_FOR_EXCEPTION(
     c_cijk.is_empty() && csz != 1, std::logic_error,
     "Sacado::UQ::PCE::operator*(): empty cijk but expansion size > 1");
@@ -757,7 +757,7 @@ operator/(const PCE<Storage>& a, const PCE<Storage>& b)
   const ordinal_type bsz = b.size();
   const ordinal_type csz = asz > bsz ? asz : bsz;
   
-#if !defined(__CUDA_ARCH__)
+#if !(defined(__CUDA_ARCH__) || defined(__HIP_DEVICE_COMPILE__))
 TEUCHOS_TEST_FOR_EXCEPTION(
   asz != bsz && asz != 1 && bsz != 1, std::logic_error,
   "Sacado::UQ::PCE::operator/(): input sizes do not match");
@@ -766,7 +766,7 @@ TEUCHOS_TEST_FOR_EXCEPTION(
 
   PCE<Storage> c(c_cijk, csz);
 
-#if defined(__CUDA_ARCH__)
+#if defined(__CUDA_ARCH__) || defined(__HIP_DEVICE_COMPILE__)
   const_pointer ac = a.coeff();
   pointer cc = c.coeff();
   value_type bcz = b.fastAccessCoeff(0);
@@ -774,7 +774,7 @@ TEUCHOS_TEST_FOR_EXCEPTION(
     cc[i] = ac[i]/bcz;
 #endif
 
-#if !defined(__CUDA_ARCH__)
+#if !(defined(__CUDA_ARCH__) || defined(__HIP_DEVICE_COMPILE__))
   if (bsz == 1) {//constant denom
     const_pointer ac = a.coeff();
     const_pointer bc = b.coeff();
@@ -826,7 +826,7 @@ KOKKOS_INLINE_FUNCTION
 PCE<Storage>
 exp(const PCE<Storage>& a)
 {
-#if !defined(__CUDA_ARCH__)
+#if !(defined(__CUDA_ARCH__) || defined(__HIP_DEVICE_COMPILE__))
   TEUCHOS_TEST_FOR_EXCEPTION(
     a.size() != 1, std::logic_error,
     "Sacado::UQ::PCE::exp():  argument has size != 1");
@@ -843,7 +843,7 @@ KOKKOS_INLINE_FUNCTION
 PCE<Storage>
 log(const PCE<Storage>& a)
 {
-#if !defined(__CUDA_ARCH__)
+#if !(defined(__CUDA_ARCH__) || defined(__HIP_DEVICE_COMPILE__))
   TEUCHOS_TEST_FOR_EXCEPTION(
     a.size() != 1, std::logic_error,
     "Sacado::UQ::PCE::log():  argument has size != 1");
@@ -860,7 +860,7 @@ KOKKOS_INLINE_FUNCTION
 PCE<Storage>
 log10(const PCE<Storage>& a)
 {
-#if !defined(__CUDA_ARCH__)
+#if !(defined(__CUDA_ARCH__) || defined(__HIP_DEVICE_COMPILE__))
   TEUCHOS_TEST_FOR_EXCEPTION(
     a.size() != 1, std::logic_error,
     "Sacado::UQ::PCE::log10():  argument has size != 1");
@@ -877,7 +877,7 @@ KOKKOS_INLINE_FUNCTION
 PCE<Storage>
 sqrt(const PCE<Storage>& a)
 {
-#if !defined(__CUDA_ARCH__)
+#if !(defined(__CUDA_ARCH__) || defined(__HIP_DEVICE_COMPILE__))
   TEUCHOS_TEST_FOR_EXCEPTION(
     a.size() != 1, std::logic_error,
     "Sacado::UQ::PCE::sqrt():  argument has size != 1");
@@ -894,7 +894,7 @@ KOKKOS_INLINE_FUNCTION
 PCE<Storage>
 cbrt(const PCE<Storage>& a)
 {
-#if !defined(__CUDA_ARCH__)
+#if !(defined(__CUDA_ARCH__) || defined(__HIP_DEVICE_COMPILE__))
   TEUCHOS_TEST_FOR_EXCEPTION(
     a.size() != 1, std::logic_error,
     "Sacado::UQ::PCE::cbrt():  argument has size != 1");
@@ -911,7 +911,7 @@ KOKKOS_INLINE_FUNCTION
 PCE<Storage>
 pow(const PCE<Storage>& a, const PCE<Storage>& b)
 {
-#if !defined(__CUDA_ARCH__)
+#if !(defined(__CUDA_ARCH__) || defined(__HIP_DEVICE_COMPILE__))
   TEUCHOS_TEST_FOR_EXCEPTION(
     a.size() != 1 || b.size() != 1, std::logic_error,
     "Sacado::UQ::PCE::pow():  arguments have size != 1");
@@ -929,7 +929,7 @@ PCE<Storage>
 pow(const typename PCE<Storage>::value_type& a,
     const PCE<Storage>& b)
 {
-#if !defined(__CUDA_ARCH__)
+#if !(defined(__CUDA_ARCH__) || defined(__HIP_DEVICE_COMPILE__))
   TEUCHOS_TEST_FOR_EXCEPTION(
     b.size() != 1, std::logic_error,
     "Sacado::UQ::PCE::pow():  arguments have size != 1");
@@ -947,7 +947,7 @@ PCE<Storage>
 pow(const PCE<Storage>& a,
     const typename PCE<Storage>::value_type& b)
 {
-#if !defined(__CUDA_ARCH__)
+#if !(defined(__CUDA_ARCH__) || defined(__HIP_DEVICE_COMPILE__))
   TEUCHOS_TEST_FOR_EXCEPTION(
     a.size() != 1, std::logic_error,
     "Sacado::UQ::PCE::pow():  arguments have size != 1");
@@ -964,7 +964,7 @@ KOKKOS_INLINE_FUNCTION
 PCE<Storage>
 sin(const PCE<Storage>& a)
 {
-#if !defined(__CUDA_ARCH__)
+#if !(defined(__CUDA_ARCH__) || defined(__HIP_DEVICE_COMPILE__))
   TEUCHOS_TEST_FOR_EXCEPTION(
     a.size() != 1, std::logic_error,
     "Sacado::UQ::PCE::sin():  argument has size != 1");
@@ -981,7 +981,7 @@ KOKKOS_INLINE_FUNCTION
 PCE<Storage>
 cos(const PCE<Storage>& a)
 {
-#if !defined(__CUDA_ARCH__)
+#if !(defined(__CUDA_ARCH__) || defined(__HIP_DEVICE_COMPILE__))
   TEUCHOS_TEST_FOR_EXCEPTION(
     a.size() != 1, std::logic_error,
     "Sacado::UQ::PCE::cos():  argument has size != 1");
@@ -998,7 +998,7 @@ KOKKOS_INLINE_FUNCTION
 PCE<Storage>
 tan(const PCE<Storage>& a)
 {
-#if !defined(__CUDA_ARCH__)
+#if !(defined(__CUDA_ARCH__) || defined(__HIP_DEVICE_COMPILE__))
   TEUCHOS_TEST_FOR_EXCEPTION(
     a.size() != 1, std::logic_error,
     "Sacado::UQ::PCE::tan():  argument has size != 1");
@@ -1015,7 +1015,7 @@ KOKKOS_INLINE_FUNCTION
 PCE<Storage>
 sinh(const PCE<Storage>& a)
 {
-#if !defined(__CUDA_ARCH__)
+#if !(defined(__CUDA_ARCH__) || defined(__HIP_DEVICE_COMPILE__))
   TEUCHOS_TEST_FOR_EXCEPTION(
     a.size() != 1, std::logic_error,
     "Sacado::UQ::PCE::sinh():  argument has size != 1");
@@ -1032,7 +1032,7 @@ KOKKOS_INLINE_FUNCTION
 PCE<Storage>
 cosh(const PCE<Storage>& a)
 {
-#if !defined(__CUDA_ARCH__)
+#if !(defined(__CUDA_ARCH__) || defined(__HIP_DEVICE_COMPILE__))
   TEUCHOS_TEST_FOR_EXCEPTION(
     a.size() != 1, std::logic_error,
     "Sacado::UQ::PCE::cosh():  argument has size != 1");
@@ -1049,7 +1049,7 @@ KOKKOS_INLINE_FUNCTION
 PCE<Storage>
 tanh(const PCE<Storage>& a)
 {
-#if !defined(__CUDA_ARCH__)
+#if !(defined(__CUDA_ARCH__) || defined(__HIP_DEVICE_COMPILE__))
   TEUCHOS_TEST_FOR_EXCEPTION(
     a.size() != 1, std::logic_error,
     "Sacado::UQ::PCE::tanh():  argument has size != 1");
@@ -1066,7 +1066,7 @@ KOKKOS_INLINE_FUNCTION
 PCE<Storage>
 acos(const PCE<Storage>& a)
 {
-#if !defined(__CUDA_ARCH__)
+#if !(defined(__CUDA_ARCH__) || defined(__HIP_DEVICE_COMPILE__))
   TEUCHOS_TEST_FOR_EXCEPTION(
     a.size() != 1, std::logic_error,
     "Sacado::UQ::PCE::acos():  argument has size != 1");
@@ -1083,7 +1083,7 @@ KOKKOS_INLINE_FUNCTION
 PCE<Storage>
 asin(const PCE<Storage>& a)
 {
-#if !defined(__CUDA_ARCH__)
+#if !(defined(__CUDA_ARCH__) || defined(__HIP_DEVICE_COMPILE__))
   TEUCHOS_TEST_FOR_EXCEPTION(
     a.size() != 1, std::logic_error,
     "Sacado::UQ::PCE::asin():  argument has size != 1");
@@ -1100,7 +1100,7 @@ KOKKOS_INLINE_FUNCTION
 PCE<Storage>
 atan(const PCE<Storage>& a)
 {
-#if !defined(__CUDA_ARCH__)
+#if !(defined(__CUDA_ARCH__) || defined(__HIP_DEVICE_COMPILE__))
   TEUCHOS_TEST_FOR_EXCEPTION(
     a.size() != 1, std::logic_error,
     "Sacado::UQ::PCE::atan():  argument has size != 1");
@@ -1118,7 +1118,7 @@ KOKKOS_INLINE_FUNCTION
 PCE<Storage>
 acosh(const PCE<Storage>& a)
 {
-#if !defined(__CUDA_ARCH__)
+#if !(defined(__CUDA_ARCH__) || defined(__HIP_DEVICE_COMPILE__))
   TEUCHOS_TEST_FOR_EXCEPTION(
     a.size() != 1, std::logic_error,
     "Sacado::UQ::PCE::acosh():  argument has size != 1");
@@ -1135,7 +1135,7 @@ KOKKOS_INLINE_FUNCTION
 PCE<Storage>
 asinh(const PCE<Storage>& a)
 {
-#if !defined(__CUDA_ARCH__)
+#if !(defined(__CUDA_ARCH__) || defined(__HIP_DEVICE_COMPILE__))
   TEUCHOS_TEST_FOR_EXCEPTION(
     a.size() != 1, std::logic_error,
     "Sacado::UQ::PCE::asinh():  argument has size != 1");
@@ -1152,7 +1152,7 @@ KOKKOS_INLINE_FUNCTION
 PCE<Storage>
 atanh(const PCE<Storage>& a)
 {
-#if !defined(__CUDA_ARCH__)
+#if !(defined(__CUDA_ARCH__) || defined(__HIP_DEVICE_COMPILE__))
   TEUCHOS_TEST_FOR_EXCEPTION(
     a.size() != 1, std::logic_error,
     "Sacado::UQ::PCE::atanh():  argument has size != 1");
