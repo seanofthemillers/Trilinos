@@ -49,7 +49,7 @@
 #include <memory>
 
 #include "Ifpack2_BlockHelper.hpp"
-#include "Ifpack2_BlockComputeResidualVector.hpp"
+#include "Tpetra_Details_residual.hpp"
 
 //#include <KokkosBlas2_gemv.hpp>
 
@@ -154,827 +154,6 @@ namespace Ifpack2 {
 #define IFPACK2_BLOCKTRIDICONTAINER_PROFILER_REGION_BEGIN
 #define IFPACK2_BLOCKTRIDICONTAINER_PROFILER_REGION_END
 #endif
-
-    ///
-    /// setup sequential importer
-    ///
-    template<typename MatrixType>
-    typename Teuchos::RCP<const typename BlockHelperDetails::ImplType<MatrixType>::tpetra_import_type>
-    createBlockCrsTpetraImporter(const Teuchos::RCP<const typename BlockHelperDetails::ImplType<MatrixType>::tpetra_row_matrix_type> &A) {
-      IFPACK2_BLOCKHELPER_TIMER("BlockTriDi::CreateBlockCrsTpetraImporter", CreateBlockCrsTpetraImporter);
-      using impl_type = BlockHelperDetails::ImplType<MatrixType>;
-      using tpetra_map_type = typename impl_type::tpetra_map_type;
-      using tpetra_mv_type = typename impl_type::tpetra_block_multivector_type;
-      using tpetra_import_type = typename impl_type::tpetra_import_type;
-      using crs_matrix_type = typename impl_type::tpetra_crs_matrix_type;
-      using block_crs_matrix_type = typename impl_type::tpetra_block_crs_matrix_type;
-
-      auto A_crs = Teuchos::rcp_dynamic_cast<const crs_matrix_type>(A);
-      auto A_bcrs = Teuchos::rcp_dynamic_cast<const block_crs_matrix_type>(A);
-
-      bool hasBlockCrsMatrix = ! A_bcrs.is_null ();
-
-      // This is OK here to use the graph of the A_crs matrix and a block size of 1
-      const auto g = hasBlockCrsMatrix ? A_bcrs->getCrsGraph() : *(A_crs->getCrsGraph()); // tpetra crs graph object
-
-      const auto blocksize = hasBlockCrsMatrix ? A_bcrs->getBlockSize() : 1;
-      const auto src = Teuchos::rcp(new tpetra_map_type(tpetra_mv_type::makePointMap(*g.getDomainMap(), blocksize)));
-      const auto tgt = Teuchos::rcp(new tpetra_map_type(tpetra_mv_type::makePointMap(*g.getColMap()   , blocksize)));
-      IFPACK2_BLOCKHELPER_TIMER_FENCE(typename BlockHelperDetails::ImplType<MatrixType>::execution_space)
-      return Teuchos::rcp(new tpetra_import_type(src, tgt));
-    }
-
-    // Partial replacement for forward-mode MultiVector::doImport.
-    // Permits overlapped communication and computation, but also supports sync'ed.
-    // I'm finding that overlapped comm/comp can give quite poor performance on some
-    // platforms, so we can't just use it straightforwardly always.
-
-    template<typename MatrixType>
-    struct AsyncableImport {
-    public:
-      using impl_type = BlockHelperDetails::ImplType<MatrixType>;
-
-    private:
-      ///
-      /// MPI wrapper
-      ///
-#if !defined(HAVE_IFPACK2_MPI)
-      typedef int MPI_Request;
-      typedef int MPI_Comm;
-#endif
-      /// teuchos mpi type traits does not recorgnize kokkos::complex (impl_scalar_type)
-      /// use scalar_type for communication data type enum
-      using scalar_type = typename impl_type::scalar_type;
-
-      static int isend(const MPI_Comm comm, const char* buf, int count, int dest, int tag, MPI_Request* ireq) {
-#ifdef HAVE_IFPACK2_MPI
-        MPI_Request ureq;
-        int ret = MPI_Isend(const_cast<char*>(buf), count, MPI_CHAR, dest, tag, comm, ireq == NULL ? &ureq : ireq);
-        if (ireq == NULL) MPI_Request_free(&ureq);
-        return ret;
-#else
-        return 0;
-#endif
-      }
-
-      static int irecv(const MPI_Comm comm, char* buf, int count, int src, int tag, MPI_Request* ireq) {
-#ifdef HAVE_IFPACK2_MPI
-        MPI_Request ureq;
-        int ret = MPI_Irecv(buf, count, MPI_CHAR, src, tag, comm, ireq == NULL ? &ureq : ireq);
-        if (ireq == NULL) MPI_Request_free(&ureq);
-        return ret;
-#else
-        return 0;
-#endif
-      }
-
-      static int waitany(int count, MPI_Request* reqs, int* index) {
-#ifdef HAVE_IFPACK2_MPI
-        return MPI_Waitany(count, reqs, index, MPI_STATUS_IGNORE);
-#else
-        return 0;
-#endif
-      }
-
-      static int waitall(int count, MPI_Request* reqs) {
-#ifdef HAVE_IFPACK2_MPI
-        return MPI_Waitall(count, reqs, MPI_STATUS_IGNORE);
-#else
-        return 0;
-#endif
-      }
-
-    public:
-      using tpetra_map_type = typename impl_type::tpetra_map_type;
-      using tpetra_import_type = typename impl_type::tpetra_import_type;
-
-      using local_ordinal_type = typename impl_type::local_ordinal_type;
-      using global_ordinal_type = typename impl_type::global_ordinal_type;
-      using size_type = typename impl_type::size_type;
-      using impl_scalar_type = typename impl_type::impl_scalar_type;
-
-      using int_1d_view_host = Kokkos::View<int*,Kokkos::HostSpace>;
-      using local_ordinal_type_1d_view_host = Kokkos::View<local_ordinal_type*,Kokkos::HostSpace>;
-
-      using execution_space = typename impl_type::execution_space;
-      using memory_space = typename impl_type::memory_space;
-      using local_ordinal_type_1d_view = typename impl_type::local_ordinal_type_1d_view;
-      using size_type_1d_view = typename impl_type::size_type_1d_view;
-      using size_type_1d_view_host = Kokkos::View<size_type*,Kokkos::HostSpace>;
-
-#if defined(KOKKOS_ENABLE_CUDA)
-      using impl_scalar_type_1d_view =
-        typename std::conditional<std::is_same<execution_space,Kokkos::Cuda>::value,
-#  if defined(IFPACK2_BLOCKTRIDICONTAINER_USE_PINNED_MEMORY_FOR_MPI)
-                                  Kokkos::View<impl_scalar_type*,Kokkos::CudaHostPinnedSpace>,
-#  elif defined(IFPACK2_BLOCKTRIDICONTAINER_USE_CUDA_MEMORY_FOR_MPI)
-                                  Kokkos::View<impl_scalar_type*,Kokkos::CudaSpace>,
-#  else                           // no experimental macros are defined
-                                  typename impl_type::impl_scalar_type_1d_view,
-#  endif                          /// when cuda enabled and exec space is not cuda
-                                  typename impl_type::impl_scalar_type_1d_view>::type;
-#else
-      using impl_scalar_type_1d_view = typename impl_type::impl_scalar_type_1d_view;
-#endif
-      using impl_scalar_type_1d_view_host = Kokkos::View<impl_scalar_type*,Kokkos::HostSpace>;
-      using impl_scalar_type_2d_view = typename impl_type::impl_scalar_type_2d_view;
-      using impl_scalar_type_2d_view_tpetra = typename impl_type::impl_scalar_type_2d_view_tpetra;
-
-#ifdef HAVE_IFPACK2_MPI
-      MPI_Comm comm;
-#endif
-
-      impl_scalar_type_2d_view_tpetra remote_multivector;
-      local_ordinal_type blocksize;
-
-      template<typename T>
-      struct SendRecvPair {
-        T send, recv;
-      };
-
-      // (s)end and (r)eceive data:
-      SendRecvPair<int_1d_view_host> pids;           // mpi ranks
-      SendRecvPair<std::vector<MPI_Request> > reqs;  // MPI_Request is pointer, cannot use kokkos view
-      SendRecvPair<size_type_1d_view> offset;        // offsets to local id list and data buffer
-      SendRecvPair<size_type_1d_view_host> offset_host;        // offsets to local id list and data buffer
-      SendRecvPair<local_ordinal_type_1d_view> lids; // local id list
-      SendRecvPair<impl_scalar_type_1d_view> buffer; // data buffer
-      SendRecvPair<impl_scalar_type_1d_view_host> buffer_host; // data buffer
-
-      local_ordinal_type_1d_view dm2cm; // permutation
-
-#if defined(KOKKOS_ENABLE_CUDA) || defined(KOKKOS_ENABLE_HIP) || defined(KOKKOS_ENABLE_SYCL)
-      using exec_instance_1d_std_vector = std::vector<execution_space>;
-      exec_instance_1d_std_vector exec_instances;  
-#endif
-
-      // for cuda
-    public:
-      void setOffsetValues(const Teuchos::ArrayView<const size_t> &lens,
-                           const size_type_1d_view &offs) {
-        // wrap lens to kokkos view and deep copy to device
-        Kokkos::View<size_t*,Kokkos::HostSpace> lens_host(const_cast<size_t*>(lens.getRawPtr()), lens.size());
-        const auto lens_device = Kokkos::create_mirror_view_and_copy(memory_space(), lens_host);
-
-        // exclusive scan
-        const Kokkos::RangePolicy<execution_space> policy(0,offs.extent(0));
-        const local_ordinal_type lens_size = lens_device.extent(0);
-        Kokkos::parallel_scan
-          ("AsyncableImport::RangePolicy::setOffsetValues",
-           policy, KOKKOS_LAMBDA(const local_ordinal_type &i, size_type &update, const bool &final) {
-            if (final)
-              offs(i) = update;
-            update += (i < lens_size ? lens_device[i] : 0);
-          });
-      }
-
-      void setOffsetValuesHost(const Teuchos::ArrayView<const size_t> &lens,
-                               const size_type_1d_view_host &offs) {
-        // wrap lens to kokkos view and deep copy to device
-        Kokkos::View<size_t*,Kokkos::HostSpace> lens_host(const_cast<size_t*>(lens.getRawPtr()), lens.size());
-        const auto lens_device = Kokkos::create_mirror_view_and_copy(memory_space(), lens_host);
-
-        // exclusive scan
-        offs(0) = 0;
-        for (local_ordinal_type i=1,iend=offs.extent(0);i<iend;++i) {
-          offs(i) = offs(i-1) + lens[i-1];
-        }
-      }
-
-    private:
-      void createMpiRequests(const tpetra_import_type &import) {
-        Tpetra::Distributor &distributor = import.getDistributor();
-
-        // copy pids from distributor
-        const auto pids_from = distributor.getProcsFrom();
-        pids.recv = int_1d_view_host(do_not_initialize_tag("pids recv"), pids_from.size());
-        memcpy(pids.recv.data(), pids_from.getRawPtr(), sizeof(int)*pids.recv.extent(0));
-
-        const auto pids_to = distributor.getProcsTo();
-        pids.send = int_1d_view_host(do_not_initialize_tag("pids send"), pids_to.size());
-        memcpy(pids.send.data(), pids_to.getRawPtr(), sizeof(int)*pids.send.extent(0));
-
-        // mpi requests
-        reqs.recv.resize(pids.recv.extent(0)); memset(reqs.recv.data(), 0, reqs.recv.size()*sizeof(MPI_Request));
-        reqs.send.resize(pids.send.extent(0)); memset(reqs.send.data(), 0, reqs.send.size()*sizeof(MPI_Request));
-
-        // construct offsets
-#if 0
-        const auto lengths_to = distributor.getLengthsTo();
-        offset.send = size_type_1d_view(do_not_initialize_tag("offset send"), lengths_to.size() + 1);
-
-        const auto lengths_from = distributor.getLengthsFrom();
-        offset.recv = size_type_1d_view(do_not_initialize_tag("offset recv"), lengths_from.size() + 1);
-
-        setOffsetValues(lengths_to,   offset.send);
-        offset_host.send = Kokkos::create_mirror_view_and_copy(Kokkos::HostSpace(), offset.send);
-
-        setOffsetValues(lengths_from, offset.recv);
-        offset_host.recv = Kokkos::create_mirror_view_and_copy(Kokkos::HostSpace(), offset.recv);
-#else
-        const auto lengths_to = distributor.getLengthsTo();
-        offset_host.send = size_type_1d_view_host(do_not_initialize_tag("offset send"), lengths_to.size() + 1);
-
-        const auto lengths_from = distributor.getLengthsFrom();
-        offset_host.recv = size_type_1d_view_host(do_not_initialize_tag("offset recv"), lengths_from.size() + 1);
-
-        setOffsetValuesHost(lengths_to, offset_host.send);
-        //offset.send = Kokkos::create_mirror_view_and_copy(memory_space(), offset_host.send);
-
-        setOffsetValuesHost(lengths_from, offset_host.recv);
-        //offset.recv = Kokkos::create_mirror_view_and_copy(memory_space(), offset_host.recv);
-#endif
-      }
-
-      void createSendRecvIDs(const tpetra_import_type &import) {
-        // For each remote PID, the list of LIDs to receive.
-        const auto remote_lids = import.getRemoteLIDs();
-        const local_ordinal_type_1d_view_host
-          remote_lids_view_host(const_cast<local_ordinal_type*>(remote_lids.getRawPtr()), remote_lids.size());
-        lids.recv = local_ordinal_type_1d_view(do_not_initialize_tag("lids recv"), remote_lids.size());
-        Kokkos::deep_copy(lids.recv, remote_lids_view_host);
-
-        // For each export PID, the list of LIDs to send.
-        auto epids = import.getExportPIDs();
-        auto elids = import.getExportLIDs();
-        TEUCHOS_ASSERT(epids.size() == elids.size());
-        lids.send = local_ordinal_type_1d_view(do_not_initialize_tag("lids send"), elids.size());
-        auto lids_send_host = Kokkos::create_mirror_view(lids.send);
-
-        // naive search (not sure if pids or epids are sorted)
-        for (local_ordinal_type cnt=0,i=0,iend=pids.send.extent(0);i<iend;++i) {
-          const auto pid_send_value = pids.send[i];
-          for (local_ordinal_type j=0,jend=epids.size();j<jend;++j)
-            if (epids[j] == pid_send_value) lids_send_host[cnt++] = elids[j];
-          TEUCHOS_ASSERT(static_cast<size_t>(cnt) == offset_host.send[i+1]);
-        }
-        Kokkos::deep_copy(lids.send, lids_send_host);
-      }
-
-      void createExecutionSpaceInstances() {
-#if defined(KOKKOS_ENABLE_CUDA) || defined(KOKKOS_ENABLE_HIP) || defined(KOKKOS_ENABLE_SYCL)
-        //The following line creates 8 streams:
-        exec_instances =
-          Kokkos::Experimental::partition_space(execution_space(), 1, 1, 1, 1, 1, 1, 1, 1);
-#endif
-      }
-
-    public:
-      // for cuda, all tag types are public
-      struct ToBuffer {};
-      struct ToMultiVector {};
-
-      AsyncableImport (const Teuchos::RCP<const tpetra_map_type>& src_map,
-                       const Teuchos::RCP<const tpetra_map_type>& tgt_map,
-                       const local_ordinal_type blocksize_,
-                       const local_ordinal_type_1d_view dm2cm_) {
-        blocksize = blocksize_;
-        dm2cm = dm2cm_;
-
-#ifdef HAVE_IFPACK2_MPI
-        comm = Tpetra::Details::extractMpiCommFromTeuchos(*tgt_map->getComm());
-#endif
-        const tpetra_import_type import(src_map, tgt_map);
-
-        createMpiRequests(import);
-        createSendRecvIDs(import);
-        createExecutionSpaceInstances();
-      }
-
-      void createDataBuffer(const local_ordinal_type &num_vectors) {
-        const size_type extent_0 = lids.recv.extent(0)*blocksize;
-        const size_type extent_1 = num_vectors;
-        if (remote_multivector.extent(0) == extent_0 &&
-            remote_multivector.extent(1) == extent_1) {
-          // skip
-        } else {
-          remote_multivector =
-            impl_scalar_type_2d_view_tpetra(do_not_initialize_tag("remote multivector"), extent_0, extent_1);
-
-          const auto send_buffer_size = offset_host.send[offset_host.send.extent(0)-1]*blocksize*num_vectors;
-          const auto recv_buffer_size = offset_host.recv[offset_host.recv.extent(0)-1]*blocksize*num_vectors;
-
-          buffer.send = impl_scalar_type_1d_view(do_not_initialize_tag("buffer send"), send_buffer_size);
-          buffer.recv = impl_scalar_type_1d_view(do_not_initialize_tag("buffer recv"), recv_buffer_size);
-
-          if (!Tpetra::Details::Behavior::assumeMpiIsGPUAware()) {
-            buffer_host.send = impl_scalar_type_1d_view_host(do_not_initialize_tag("buffer send"), send_buffer_size);
-            buffer_host.recv = impl_scalar_type_1d_view_host(do_not_initialize_tag("buffer recv"), recv_buffer_size);
-          }
-        }
-      }
-
-      void cancel () {
-#ifdef HAVE_IFPACK2_MPI
-        waitall(reqs.recv.size(), reqs.recv.data());
-        waitall(reqs.send.size(), reqs.send.data());
-#endif
-      }
-
-      // ======================================================================
-      // Async version using execution space instances
-      // ======================================================================
-
-#if defined(KOKKOS_ENABLE_CUDA) || defined(KOKKOS_ENABLE_HIP) || defined(KOKKOS_ENABLE_SYCL)
-      template<typename PackTag>
-      static
-      void copy(const local_ordinal_type_1d_view &lids_,
-                const impl_scalar_type_1d_view &buffer_,
-                const local_ordinal_type ibeg_,
-                const local_ordinal_type iend_,
-                const impl_scalar_type_2d_view_tpetra &multivector_,
-                const local_ordinal_type blocksize_,
-                const execution_space &exec_instance_) {
-        const local_ordinal_type num_vectors = multivector_.extent(1);
-        const local_ordinal_type mv_blocksize = blocksize_*num_vectors;
-        const local_ordinal_type idiff = iend_ - ibeg_;
-        const auto abase = buffer_.data() + mv_blocksize*ibeg_;
-
-        using team_policy_type = Kokkos::TeamPolicy<execution_space>;
-        local_ordinal_type vector_size(0);
-        if      (blocksize_ <=  4) vector_size =  4;
-        else if (blocksize_ <=  8) vector_size =  8;
-        else if (blocksize_ <= 16) vector_size = 16;
-        else                       vector_size = 32;
-
-        const auto work_item_property = Kokkos::Experimental::WorkItemProperty::HintLightWeight;
-        const team_policy_type policy(exec_instance_, idiff, 1, vector_size);
-        Kokkos::parallel_for
-          (//"AsyncableImport::TeamPolicy::copyViaCudaStream",
-           Kokkos::Experimental::require(policy, work_item_property),
-           KOKKOS_LAMBDA(const typename team_policy_type::member_type &member) {
-            const local_ordinal_type i = member.league_rank();
-            Kokkos::parallel_for
-              (Kokkos::TeamThreadRange(member,num_vectors),[&](const local_ordinal_type &j) {
-                auto aptr = abase + blocksize_*(i + idiff*j);
-                auto bptr = &multivector_(blocksize_*lids_(i + ibeg_), j);
-                if (std::is_same<PackTag,ToBuffer>::value)
-                  Kokkos::parallel_for
-                    (Kokkos::ThreadVectorRange(member,blocksize_),[&](const local_ordinal_type &k) {
-                      aptr[k] = bptr[k];
-                    });
-                else
-                  Kokkos::parallel_for
-                    (Kokkos::ThreadVectorRange(member,blocksize_),[&](const local_ordinal_type &k) {
-                      bptr[k] = aptr[k];
-                    });
-              });
-          });
-      }
-
-      void asyncSendRecvVar1(const impl_scalar_type_2d_view_tpetra &mv) {
-        IFPACK2_BLOCKHELPER_TIMER("BlockTriDi::AsyncableImport::AsyncSendRecv", AsyncSendRecv);
-
-#ifdef HAVE_IFPACK2_MPI
-        // constants and reallocate data buffers if necessary
-        const local_ordinal_type num_vectors = mv.extent(1);
-        const local_ordinal_type mv_blocksize = blocksize*num_vectors;
-
-        // 0. post receive async
-        for (local_ordinal_type i=0,iend=pids.recv.extent(0);i<iend;++i) {
-          if(Tpetra::Details::Behavior::assumeMpiIsGPUAware()) {
-            irecv(comm,
-                  reinterpret_cast<char*>(buffer.recv.data() + offset_host.recv[i]*mv_blocksize),
-                  (offset_host.recv[i+1] - offset_host.recv[i])*mv_blocksize*sizeof(impl_scalar_type),
-                  pids.recv[i],
-                  42,
-                  &reqs.recv[i]);
-          }
-          else {
-            irecv(comm,
-                  reinterpret_cast<char*>(buffer_host.recv.data() + offset_host.recv[i]*mv_blocksize),
-                  (offset_host.recv[i+1] - offset_host.recv[i])*mv_blocksize*sizeof(impl_scalar_type),
-                  pids.recv[i],
-                  42,
-                  &reqs.recv[i]);
-          }
-        }
-
-        /// this is necessary to pass unit test. somewhere overlapped using the default execution space
-        execution_space().fence();
-
-        // 1. async memcpy
-        for (local_ordinal_type i=0;i<static_cast<local_ordinal_type>(pids.send.extent(0));++i) {
-          // 1.0. enqueue pack buffer
-          if (i<8)  exec_instances[i%8].fence();
-          copy<ToBuffer>(lids.send, buffer.send,
-                         offset_host.send(i), offset_host.send(i+1),
-                         mv, blocksize,
-                         //execution_space());
-                         exec_instances[i%8]);
-          if (!Tpetra::Details::Behavior::assumeMpiIsGPUAware()) {
-            //if (i<8)  exec_instances[i%8].fence();
-            const local_ordinal_type num_vectors = mv.extent(1);
-            const local_ordinal_type mv_blocksize = blocksize*num_vectors;
-
-            Kokkos::deep_copy(exec_instances[i%8],
-              Kokkos::subview(buffer_host.send, 
-                Kokkos::pair<local_ordinal_type, local_ordinal_type>(
-                  offset_host.send(i)*mv_blocksize, 
-                  offset_host.send(i+1)*mv_blocksize)), 
-              Kokkos::subview(buffer.send, 
-                Kokkos::pair<local_ordinal_type, local_ordinal_type>(
-                  offset_host.send(i)*mv_blocksize,
-                  offset_host.send(i+1)*mv_blocksize)));
-          }
-        }
-        /// somehow one unit test fails when we use exec_instance[i%8]
-        //execution_space().fence();
-        for (local_ordinal_type i=0;i<static_cast<local_ordinal_type>(pids.send.extent(0));++i) {
-          // 1.1. sync the stream and isend
-          if (i<8)  exec_instances[i%8].fence();
-          if(Tpetra::Details::Behavior::assumeMpiIsGPUAware()) {
-            isend(comm,
-                  reinterpret_cast<const char*>(buffer.send.data() + offset_host.send[i]*mv_blocksize),
-                  (offset_host.send[i+1] - offset_host.send[i])*mv_blocksize*sizeof(impl_scalar_type),
-                  pids.send[i],
-                  42,
-                  &reqs.send[i]);
-          }
-          else {
-            isend(comm,
-                  reinterpret_cast<const char*>(buffer_host.send.data() + offset_host.send[i]*mv_blocksize),
-                  (offset_host.send[i+1] - offset_host.send[i])*mv_blocksize*sizeof(impl_scalar_type),
-                  pids.send[i],
-                  42,
-                  &reqs.send[i]);
-          }
-        }
-
-        // 2. poke communication
-        for (local_ordinal_type i=0,iend=pids.recv.extent(0);i<iend;++i) {
-          int flag;
-          MPI_Status stat;
-          MPI_Iprobe(pids.recv[i], 42, comm, &flag, &stat);
-        }
-#endif // HAVE_IFPACK2_MPI
-        IFPACK2_BLOCKHELPER_TIMER_FENCE(execution_space)
-      }
-
-      void syncRecvVar1() {
-        IFPACK2_BLOCKHELPER_TIMER("BlockTriDi::AsyncableImport::SyncRecv", SyncRecv);
-#ifdef HAVE_IFPACK2_MPI
-        // 0. wait for receive async.
-        for (local_ordinal_type i=0;i<static_cast<local_ordinal_type>(pids.recv.extent(0));++i) {
-          local_ordinal_type idx = i;
-
-          // 0.0. wait any
-          waitany(pids.recv.extent(0), reqs.recv.data(), &idx);
-
-          if (!Tpetra::Details::Behavior::assumeMpiIsGPUAware()) {
-            const local_ordinal_type num_vectors = remote_multivector.extent(1);
-            const local_ordinal_type mv_blocksize = blocksize*num_vectors;
-
-            Kokkos::deep_copy(
-              Kokkos::subview(buffer.recv, 
-                Kokkos::pair<local_ordinal_type, local_ordinal_type>(
-                  offset_host.recv(idx)*mv_blocksize, 
-                  offset_host.recv(idx+1)*mv_blocksize)), 
-              Kokkos::subview(buffer_host.recv, 
-                Kokkos::pair<local_ordinal_type, local_ordinal_type>(
-                  offset_host.recv(idx)*mv_blocksize, 
-                  offset_host.recv(idx+1)*mv_blocksize)));
-          }
-
-          // 0.1. unpack data after data is moved into a device
-          copy<ToMultiVector>(lids.recv, buffer.recv,
-                              offset_host.recv(idx), offset_host.recv(idx+1),
-                              remote_multivector, blocksize,
-                              exec_instances[idx%8]);
-        }
-
-        // 1. fire up all cuda events
-        Kokkos::fence();
-
-        // 2. cleanup all open comm
-        waitall(reqs.send.size(), reqs.send.data());
-#endif // HAVE_IFPACK2_MPI
-        IFPACK2_BLOCKHELPER_TIMER_FENCE(execution_space)
-      }
-#endif //defined(KOKKOS_ENABLE_CUDA|HIP|SYCL)
-
-      // ======================================================================
-      // Generic version without using execution space instances
-      // - only difference between device and host architecture is on using team
-      //   or range policies.
-      // ======================================================================
-      template<typename PackTag>
-      static
-      void copy(const local_ordinal_type_1d_view &lids_,
-                const impl_scalar_type_1d_view &buffer_,
-                const local_ordinal_type &ibeg_,
-                const local_ordinal_type &iend_,
-                const impl_scalar_type_2d_view_tpetra &multivector_,
-                const local_ordinal_type blocksize_) {
-        const local_ordinal_type num_vectors = multivector_.extent(1);
-        const local_ordinal_type mv_blocksize = blocksize_*num_vectors;
-        const local_ordinal_type idiff = iend_ - ibeg_;
-        const auto abase = buffer_.data() + mv_blocksize*ibeg_;
-        if constexpr (BlockHelperDetails::is_device<execution_space>::value) {
-          using team_policy_type = Kokkos::TeamPolicy<execution_space>;
-          local_ordinal_type vector_size(0);
-          if      (blocksize_ <=  4) vector_size =  4;
-          else if (blocksize_ <=  8) vector_size =  8;
-          else if (blocksize_ <= 16) vector_size = 16;
-          else                       vector_size = 32;
-          const team_policy_type policy(idiff, 1, vector_size);
-          Kokkos::parallel_for
-            ("AsyncableImport::TeamPolicy::copy",
-             policy, KOKKOS_LAMBDA(const typename team_policy_type::member_type &member) {
-              const local_ordinal_type i = member.league_rank();
-              Kokkos::parallel_for
-                (Kokkos::TeamThreadRange(member,num_vectors),[&](const local_ordinal_type &j) {
-                  auto aptr = abase + blocksize_*(i + idiff*j);
-                  auto bptr = &multivector_(blocksize_*lids_(i + ibeg_), j);
-                  if (std::is_same<PackTag,ToBuffer>::value)
-                    Kokkos::parallel_for
-                      (Kokkos::ThreadVectorRange(member,blocksize_),[&](const local_ordinal_type &k) {
-                        aptr[k] = bptr[k];
-                      });
-                  else
-                    Kokkos::parallel_for
-                      (Kokkos::ThreadVectorRange(member,blocksize_),[&](const local_ordinal_type &k) {
-                        bptr[k] = aptr[k];
-                      });
-                });
-            });
-        } else {
-            const Kokkos::RangePolicy<execution_space> policy(0, idiff*num_vectors);
-            Kokkos::parallel_for
-              ("AsyncableImport::RangePolicy::copy",
-               policy, KOKKOS_LAMBDA(const local_ordinal_type &ij) {
-                const local_ordinal_type i = ij%idiff;
-                const local_ordinal_type j = ij/idiff;
-                auto aptr = abase + blocksize_*(i + idiff*j);
-                auto bptr = &multivector_(blocksize_*lids_(i + ibeg_), j);
-                auto from = std::is_same<PackTag,ToBuffer>::value ? bptr : aptr;
-                auto to   = std::is_same<PackTag,ToBuffer>::value ? aptr : bptr;
-                memcpy(to, from, sizeof(impl_scalar_type)*blocksize_);
-              });
-        }
-      }
-
-
-      ///
-      /// standard comm
-      ///
-      void asyncSendRecvVar0(const impl_scalar_type_2d_view_tpetra &mv) {
-        IFPACK2_BLOCKHELPER_TIMER("BlockTriDi::AsyncableImport::AsyncSendRecv", AsyncSendRecv);
-
-#ifdef HAVE_IFPACK2_MPI
-        // constants and reallocate data buffers if necessary
-        const local_ordinal_type num_vectors = mv.extent(1);
-        const local_ordinal_type mv_blocksize = blocksize*num_vectors;
-
-        // receive async
-        for (local_ordinal_type i=0,iend=pids.recv.extent(0);i<iend;++i) {
-          if(Tpetra::Details::Behavior::assumeMpiIsGPUAware()) {
-            irecv(comm,
-                  reinterpret_cast<char*>(buffer.recv.data() + offset_host.recv[i]*mv_blocksize),
-                  (offset_host.recv[i+1] - offset_host.recv[i])*mv_blocksize*sizeof(impl_scalar_type),
-                  pids.recv[i],
-                  42,
-                  &reqs.recv[i]);
-          }
-          else {
-            irecv(comm,
-                  reinterpret_cast<char*>(buffer_host.recv.data() + offset_host.recv[i]*mv_blocksize),
-                  (offset_host.recv[i+1] - offset_host.recv[i])*mv_blocksize*sizeof(impl_scalar_type),
-                  pids.recv[i],
-                  42,
-                  &reqs.recv[i]);
-          }
-        }
-
-        // send async
-        for (local_ordinal_type i=0,iend=pids.send.extent(0);i<iend;++i) {
-          copy<ToBuffer>(lids.send, buffer.send, offset_host.send(i), offset_host.send(i+1),
-                         mv, blocksize);
-          Kokkos::fence();
-          if(Tpetra::Details::Behavior::assumeMpiIsGPUAware()) {
-            isend(comm,
-                  reinterpret_cast<const char*>(buffer.send.data() + offset_host.send[i]*mv_blocksize),
-                  (offset_host.send[i+1] - offset_host.send[i])*mv_blocksize*sizeof(impl_scalar_type),
-                  pids.send[i],
-                  42,
-                  &reqs.send[i]);
-          }
-          else {
-            Kokkos::deep_copy(
-              Kokkos::subview(buffer_host.send, 
-                Kokkos::pair<local_ordinal_type, local_ordinal_type>(
-                  offset_host.send(i)*mv_blocksize,
-                  offset_host.send(i+1)*mv_blocksize)), 
-              Kokkos::subview(buffer.send, 
-                Kokkos::pair<local_ordinal_type, local_ordinal_type>(
-                  offset_host.send(i)*mv_blocksize,
-                  offset_host.send(i+1)*mv_blocksize)));
-            isend(comm,
-                  reinterpret_cast<const char*>(buffer_host.send.data() + offset_host.send[i]*mv_blocksize),
-                  (offset_host.send[i+1] - offset_host.send[i])*mv_blocksize*sizeof(impl_scalar_type),
-                  pids.send[i],
-                  42,
-                  &reqs.send[i]);            
-          }
-        }
-
-        // I find that issuing an Iprobe seems to nudge some MPIs into action,
-        // which helps with overlapped comm/comp performance.
-        for (local_ordinal_type i=0,iend=pids.recv.extent(0);i<iend;++i) {
-          int flag;
-          MPI_Status stat;
-          MPI_Iprobe(pids.recv[i], 42, comm, &flag, &stat);
-        }
-#endif
-        IFPACK2_BLOCKHELPER_TIMER_FENCE(execution_space)
-      }
-
-      void syncRecvVar0() {
-        IFPACK2_BLOCKHELPER_TIMER("BlockTriDi::AsyncableImport::SyncRecv", SyncRecv);
-#ifdef HAVE_IFPACK2_MPI
-        // receive async.
-        for (local_ordinal_type i=0,iend=pids.recv.extent(0);i<iend;++i) {
-          local_ordinal_type idx = i;
-          waitany(pids.recv.extent(0), reqs.recv.data(), &idx);
-          if (!Tpetra::Details::Behavior::assumeMpiIsGPUAware()) {
-            const local_ordinal_type num_vectors = remote_multivector.extent(1);
-            const local_ordinal_type mv_blocksize = blocksize*num_vectors;
-            Kokkos::deep_copy(
-              Kokkos::subview(buffer.recv, 
-                Kokkos::pair<local_ordinal_type, local_ordinal_type>(
-                  offset_host.recv(idx)*mv_blocksize,
-                  offset_host.recv(idx+1)*mv_blocksize)), 
-              Kokkos::subview(buffer_host.recv, 
-                Kokkos::pair<local_ordinal_type, local_ordinal_type>(
-                  offset_host.recv(idx)*mv_blocksize,
-                  offset_host.recv(idx+1)*mv_blocksize)));
-          }
-          copy<ToMultiVector>(lids.recv, buffer.recv, offset_host.recv(idx), offset_host.recv(idx+1),
-                              remote_multivector, blocksize);
-        }
-        // wait on the sends to match all Isends with a cleanup operation.
-        waitall(reqs.send.size(), reqs.send.data());
-#endif
-        IFPACK2_BLOCKHELPER_TIMER_FENCE(execution_space)
-      }
-
-      ///
-      /// front interface
-      ///
-      void asyncSendRecv(const impl_scalar_type_2d_view_tpetra &mv) {
-#if defined(KOKKOS_ENABLE_CUDA) || defined(KOKKOS_ENABLE_HIP) || defined(KOKKOS_ENABLE_SYCL)
-#if defined(IFPACK2_BLOCKTRIDICONTAINER_USE_EXEC_SPACE_INSTANCES)
-        asyncSendRecvVar1(mv);
-#else
-        asyncSendRecvVar0(mv);
-#endif
-#else
-        asyncSendRecvVar0(mv);
-#endif
-      }
-      void syncRecv() {
-#if defined(KOKKOS_ENABLE_CUDA) || defined(KOKKOS_ENABLE_HIP) || defined(KOKKOS_ENABLE_SYCL)
-#if defined(IFPACK2_BLOCKTRIDICONTAINER_USE_EXEC_SPACE_INSTANCES)
-        syncRecvVar1();
-#else
-        syncRecvVar0();
-#endif
-#else
-        syncRecvVar0();
-#endif
-      }
-
-      void syncExchange(const impl_scalar_type_2d_view_tpetra &mv) {
-        IFPACK2_BLOCKHELPER_TIMER("BlockTriDi::AsyncableImport::SyncExchange", SyncExchange);
-        asyncSendRecv(mv);
-        syncRecv();
-        IFPACK2_BLOCKHELPER_TIMER_FENCE(execution_space)
-      }
-
-      impl_scalar_type_2d_view_tpetra getRemoteMultiVectorLocalView() const { return remote_multivector; }
-    };
-
-    template <typename ViewType1, typename ViewType2>
-    struct are_same_struct {
-      ViewType1 keys1;
-      ViewType2 keys2;
-
-      are_same_struct(ViewType1 keys1_, ViewType2 keys2_) : keys1(keys1_), keys2(keys2_) {}
-      KOKKOS_INLINE_FUNCTION
-      void operator()(int i, unsigned int& count) const {
-        if (keys1(i) != keys2(i)) count++;
-      }
-    };
-
-    template <typename ViewType1, typename ViewType2>
-    bool are_same (ViewType1 keys1, ViewType2 keys2) {
-      unsigned int are_same_ = 0;
-
-      Kokkos::parallel_reduce(Kokkos::RangePolicy<typename ViewType1::execution_space>(0, keys1.extent(0)),
-                              are_same_struct(keys1, keys2),
-                              are_same_);
-      return are_same_==0;
-    }
-
-    ///
-    /// setup async importer
-    ///
-    template<typename MatrixType>
-    Teuchos::RCP<AsyncableImport<MatrixType> >
-    createBlockCrsAsyncImporter(const Teuchos::RCP<const typename BlockHelperDetails::ImplType<MatrixType>::tpetra_row_matrix_type> &A) {
-      IFPACK2_BLOCKHELPER_TIMER("createBlockCrsAsyncImporter", createBlockCrsAsyncImporter);
-      using impl_type = BlockHelperDetails::ImplType<MatrixType>;
-      using tpetra_map_type = typename impl_type::tpetra_map_type;
-      using local_ordinal_type = typename impl_type::local_ordinal_type;
-      using global_ordinal_type = typename impl_type::global_ordinal_type;
-      using local_ordinal_type_1d_view = typename impl_type::local_ordinal_type_1d_view;
-      using crs_matrix_type = typename impl_type::tpetra_crs_matrix_type;
-      using block_crs_matrix_type = typename impl_type::tpetra_block_crs_matrix_type;
-      using global_indices_array_device_type = Kokkos::View<const global_ordinal_type*, typename tpetra_map_type::device_type>;
-
-      auto A_crs = Teuchos::rcp_dynamic_cast<const crs_matrix_type>(A);
-      auto A_bcrs = Teuchos::rcp_dynamic_cast<const block_crs_matrix_type>(A);
-
-      bool hasBlockCrsMatrix = ! A_bcrs.is_null ();
-
-      // This is OK here to use the graph of the A_crs matrix and a block size of 1
-      const auto g = hasBlockCrsMatrix ? A_bcrs->getCrsGraph() : *(A_crs->getCrsGraph()); // tpetra crs graph object
-
-      const auto blocksize = hasBlockCrsMatrix ? A_bcrs->getBlockSize() : 1;
-      const auto domain_map = g.getDomainMap();
-      const auto column_map = g.getColMap();
-
-      std::vector<global_ordinal_type> gids;
-
-      Kokkos::Subview<global_indices_array_device_type, std::pair<int,int>> column_map_global_iD_last;
-
-      bool separate_remotes = true, found_first = false, need_owned_permutation = false;
-      {
-        IFPACK2_BLOCKHELPER_TIMER("createBlockCrsAsyncImporter::loop_over_local_elements", loop_over_local_elements);
-
-        global_indices_array_device_type column_map_global_iD = column_map->getMyGlobalIndicesDevice();
-        global_indices_array_device_type domain_map_global_iD = domain_map->getMyGlobalIndicesDevice();
-        
-        if(are_same(domain_map_global_iD, column_map_global_iD)) {
-          // this should be the most likely path
-          separate_remotes = true;
-          need_owned_permutation = false;
-
-          column_map_global_iD_last = Kokkos::subview(column_map_global_iD, 
-            std::pair<int,int>(domain_map_global_iD.extent(0), column_map_global_iD.extent(0)));
-        }
-        else {
-          // This loop is relatively expensive
-          for (size_t i=0;i<column_map->getLocalNumElements();++i) {
-            const global_ordinal_type gid = column_map->getGlobalElement(i);
-            if (!domain_map->isNodeGlobalElement(gid)) {
-              found_first = true;
-              gids.push_back(gid);
-            } else if (found_first) {
-              separate_remotes = false;
-              break;
-            }
-            if (!found_first && !need_owned_permutation &&
-                domain_map->getLocalElement(gid) != static_cast<local_ordinal_type>(i)) {
-              // The owned part of the domain and column maps are different
-              // orderings. We *could* do a super efficient impl of this case in the
-              // num_sweeps > 1 case by adding complexity to PermuteAndRepack. But,
-              // really, if a caller cares about speed, they wouldn't make different
-              // local permutations like this. So we punt on the best impl and go for
-              // a pretty good one: the permutation is done in place in
-              // compute_b_minus_Rx for the pure-owned part of the MVP. The only cost
-              // is the presumably worse memory access pattern of the input vector.
-              need_owned_permutation = true;
-            }
-          }
-        }
-        IFPACK2_BLOCKHELPER_TIMER_FENCE(typename BlockHelperDetails::ImplType<MatrixType>::execution_space)
-      }
-
-      if (separate_remotes) {
-        IFPACK2_BLOCKHELPER_TIMER("createBlockCrsAsyncImporter::separate_remotes", separate_remotes);
-        const auto invalid = Teuchos::OrdinalTraits<global_ordinal_type>::invalid();
-        const auto parsimonious_col_map
-          = need_owned_permutation ? 
-            Teuchos::rcp(new tpetra_map_type(invalid, gids.data(), gids.size(), 0, domain_map->getComm())):
-            Teuchos::rcp(new tpetra_map_type(invalid, column_map_global_iD_last, 0, domain_map->getComm()));
-        if (parsimonious_col_map->getGlobalNumElements() > 0) {
-          // make the importer only if needed.
-          local_ordinal_type_1d_view dm2cm;
-          if (need_owned_permutation) {
-            dm2cm = local_ordinal_type_1d_view(do_not_initialize_tag("dm2cm"), domain_map->getLocalNumElements());
-            const auto dm2cm_host = Kokkos::create_mirror_view(dm2cm);
-            for (size_t i=0;i<domain_map->getLocalNumElements();++i)
-              dm2cm_host(i) = domain_map->getLocalElement(column_map->getGlobalElement(i));
-            Kokkos::deep_copy(dm2cm, dm2cm_host);
-          }
-          IFPACK2_BLOCKHELPER_TIMER_FENCE(typename BlockHelperDetails::ImplType<MatrixType>::execution_space)
-          return Teuchos::rcp(new AsyncableImport<MatrixType>(domain_map, parsimonious_col_map, blocksize, dm2cm));
-        }
-      }
-      IFPACK2_BLOCKHELPER_TIMER_FENCE(typename BlockHelperDetails::ImplType<MatrixType>::execution_space)
-      return Teuchos::null;
-    }
 
     template<typename local_ordinal_type>
     local_ordinal_type costTRSM(const local_ordinal_type block_size) {
@@ -1862,9 +1041,7 @@ namespace Ifpack2 {
     performSymbolicPhase(const Teuchos::RCP<const typename BlockHelperDetails::ImplType<MatrixType>::tpetra_row_matrix_type> &A,
                          const Teuchos::RCP<const typename BlockHelperDetails::ImplType<MatrixType>::tpetra_crs_graph_type> &g,
                          const BlockHelperDetails::PartInterface<MatrixType> &interf,
-                         BlockTridiags<MatrixType> &btdm,
-                         BlockHelperDetails::AmD<MatrixType> &amd,
-                         const bool overlap_communication_and_computation) {
+                         BlockTridiags<MatrixType> &btdm) {
       IFPACK2_BLOCKHELPER_TIMER("BlockTriDi::SymbolicPhase", SymbolicPhase);
 
       using impl_type = BlockHelperDetails::ImplType<MatrixType>;
@@ -1876,7 +1053,6 @@ namespace Ifpack2 {
       using global_ordinal_type = typename impl_type::global_ordinal_type;
       using size_type = typename impl_type::size_type;
       using local_ordinal_type_1d_view = typename impl_type::local_ordinal_type_1d_view;
-      using size_type_1d_view = typename impl_type::size_type_1d_view;
       using vector_type_3d_view = typename impl_type::vector_type_3d_view;
       using vector_type_4d_view = typename impl_type::vector_type_4d_view;
       using crs_matrix_type = typename impl_type::tpetra_crs_matrix_type;
@@ -1892,6 +1068,7 @@ namespace Ifpack2 {
       bool hasBlockCrsMatrix = ! A_bcrs.is_null ();
       TEUCHOS_ASSERT(hasBlockCrsMatrix || g->getLocalNumRows() != 0);
       const local_ordinal_type blocksize = hasBlockCrsMatrix ? A->getBlockSize() : A->getLocalNumRows()/g->getLocalNumRows();
+      
 
       // mirroring to host
       const auto partptr = Kokkos::create_mirror_view_and_copy     (Kokkos::HostSpace(), interf.partptr);
@@ -1995,13 +1172,6 @@ namespace Ifpack2 {
             }, sum_reducer_type(sum_reducer_value));
         }
         size_type D_nnz = sum_reducer_value.v[0];
-        size_type R_nnz_owned = sum_reducer_value.v[1];
-        size_type R_nnz_remote = sum_reducer_value.v[2];
-
-        if (!overlap_communication_and_computation) {
-          R_nnz_owned += R_nnz_remote;
-          R_nnz_remote = 0;
-        }
 
         // construct the D_00 graph.
         {
@@ -2061,112 +1231,6 @@ namespace Ifpack2 {
             }
 
             if (vector_length > 1) setTridiagsToIdentity(btdm, interf.packptr);
-          }
-        }
-
-        // Construct the R graph.
-        {
-          amd.rowptr = size_type_1d_view("amd.rowptr", nrows + 1);
-          amd.A_colindsub = local_ordinal_type_1d_view(do_not_initialize_tag("amd.A_colindsub"), R_nnz_owned);
-
-          const auto R_rowptr = Kokkos::create_mirror_view(amd.rowptr);
-          const auto R_A_colindsub = Kokkos::create_mirror_view(amd.A_colindsub);
-
-          amd.rowptr_remote = size_type_1d_view("amd.rowptr_remote", overlap_communication_and_computation ? nrows + 1 : 0);
-          amd.A_colindsub_remote = local_ordinal_type_1d_view(do_not_initialize_tag("amd.A_colindsub_remote"), R_nnz_remote);
-
-          const auto R_rowptr_remote = Kokkos::create_mirror_view(amd.rowptr_remote);
-          const auto R_A_colindsub_remote = Kokkos::create_mirror_view(amd.A_colindsub_remote);
-
-          {
-            const Kokkos::RangePolicy<host_execution_space> policy(0,nrows);
-            Kokkos::parallel_for
-              ("performSymbolicPhase::RangePolicy<host_execution_space>::R_graph_count",
-               policy, KOKKOS_LAMBDA(const local_ordinal_type &lr) {
-                const local_ordinal_type ri0 = lclrow2idx[lr];
-                const local_ordinal_type pi0 = rowidx2part(ri0);
-                const size_type j0 = local_graph_rowptr(lr);
-                for (size_type j=j0;j<local_graph_rowptr(lr+1);++j) {
-                  const local_ordinal_type lc = local_graph_colidx(j);
-                  const local_ordinal_type lc2r = col2row[lc];
-                  if (lc2r != (local_ordinal_type) -1) {
-                    const local_ordinal_type ri = lclrow2idx[lc2r];
-                    const local_ordinal_type pi = rowidx2part(ri);
-                    if (pi == pi0 && ri + 1 >= ri0 && ri <= ri0 + 1) {
-                      continue;
-                    }
-                  }
-                  // exclusive scan will be performed later
-                  if (!overlap_communication_and_computation || lc < nrows) {
-                    ++R_rowptr(lr);
-                  } else {
-                    ++R_rowptr_remote(lr);
-                  }
-                }
-              });
-          }
-
-          // exclusive scan
-          typedef BlockHelperDetails::ArrayValueType<size_type,2> update_type;
-          {
-            Kokkos::RangePolicy<host_execution_space> policy(0,nrows+1);
-            Kokkos::parallel_scan
-              ("performSymbolicPhase::RangePolicy<host_execution_space>::R_graph_fill",
-               policy, KOKKOS_LAMBDA(const local_ordinal_type &lr,
-                                     update_type &update,
-                                     const bool &final) {
-                update_type val;
-                val.v[0] = R_rowptr(lr);
-                if (overlap_communication_and_computation)
-                  val.v[1] = R_rowptr_remote(lr);
-
-                if (final) {
-                  R_rowptr(lr) = update.v[0];
-                  if (overlap_communication_and_computation)
-                    R_rowptr_remote(lr) = update.v[1];
-
-                  if (lr < nrows) {
-                    const local_ordinal_type ri0 = lclrow2idx[lr];
-                    const local_ordinal_type pi0 = rowidx2part(ri0);
-
-                    size_type cnt_rowptr = R_rowptr(lr);
-                    size_type cnt_rowptr_remote = overlap_communication_and_computation ? R_rowptr_remote(lr) : 0; // when not overlap_communication_and_computation, this value is garbage
-
-                    const size_type j0 = local_graph_rowptr(lr);
-                    for (size_type j=j0;j<local_graph_rowptr(lr+1);++j) {
-                      const local_ordinal_type lc = local_graph_colidx(j);
-                      const local_ordinal_type lc2r = col2row[lc];
-                      if (lc2r != (local_ordinal_type) -1) {
-                        const local_ordinal_type ri = lclrow2idx[lc2r];
-                        const local_ordinal_type pi = rowidx2part(ri);
-                        if (pi == pi0 && ri + 1 >= ri0 && ri <= ri0 + 1)
-                          continue;
-                      }
-                      const local_ordinal_type row_entry = j - j0;
-                      if (!overlap_communication_and_computation || lc < nrows)
-                        R_A_colindsub(cnt_rowptr++) = row_entry;
-                      else
-                        R_A_colindsub_remote(cnt_rowptr_remote++) = row_entry;
-                    }
-                  }
-                }
-                update += val;
-              });
-          }
-          TEUCHOS_ASSERT(R_rowptr(nrows) == R_nnz_owned);
-          Kokkos::deep_copy(amd.rowptr, R_rowptr);
-          Kokkos::deep_copy(amd.A_colindsub, R_A_colindsub);
-          if (overlap_communication_and_computation) {
-            TEUCHOS_ASSERT(R_rowptr_remote(nrows) == R_nnz_remote);
-            Kokkos::deep_copy(amd.rowptr_remote, R_rowptr_remote);
-            Kokkos::deep_copy(amd.A_colindsub_remote, R_A_colindsub_remote);
-          }
-
-          // Allocate or view values.
-          if (hasBlockCrsMatrix)
-            amd.tpetra_values = (const_cast<block_crs_matrix_type*>(A_bcrs.get())->getValuesDeviceNonConst());
-          else {
-            amd.tpetra_values = (const_cast<crs_matrix_type*>(A_crs.get()))->getLocalValuesDevice (Tpetra::Access::ReadWrite);
           }
         }
 
@@ -4043,7 +3107,7 @@ namespace Ifpack2 {
                       for (local_ordinal_type col=0;col<num_vectors;++col) {
                         impl_scalar_type &y = Y_scalar_multivector(row,col);
                         const impl_scalar_type yd = X_internal_vector_values(pri, i, col, v)[vi] - y;
-                        y  += df*yd;
+                        y  += yd;
 
                         {//if (compute_diff) {
                           const auto yd_abs = Kokkos::ArithTraits<impl_scalar_type>::abs(yd);
@@ -4068,7 +3132,7 @@ namespace Ifpack2 {
                         const local_ordinal_type row = blocksize*lclrow(ri0+j)+i;
                         impl_scalar_type &y = Y_scalar_multivector(row,col);
                         const impl_scalar_type yd = X_internal_vector_values(pri, i, col, v)[vi] - y;
-                        y += df*yd;
+                        y += yd;
 
                         {//if (compute_diff) {
                           const auto yd_abs = Kokkos::ArithTraits<impl_scalar_type>::abs(yd);
@@ -4841,10 +3905,6 @@ namespace Ifpack2 {
     int
     applyInverseJacobi(// importer
                        const Teuchos::RCP<const typename BlockHelperDetails::ImplType<MatrixType>::tpetra_row_matrix_type> &A,
-                       const Teuchos::RCP<const typename BlockHelperDetails::ImplType<MatrixType>::tpetra_crs_graph_type> &G,
-                       const Teuchos::RCP<const typename BlockHelperDetails::ImplType<MatrixType>::tpetra_import_type> &tpetra_importer,
-                       const Teuchos::RCP<AsyncableImport<MatrixType> > &async_importer,
-                       const bool overlap_communication_and_computation,
                        // tpetra interface
                        const typename BlockHelperDetails::ImplType<MatrixType>::tpetra_multivector_type &X,  // tpetra interface
                        /* */ typename BlockHelperDetails::ImplType<MatrixType>::tpetra_multivector_type &Y,  // tpetra interface
@@ -4853,7 +3913,6 @@ namespace Ifpack2 {
                        // local object interface
                        const BlockHelperDetails::PartInterface<MatrixType> &interf, // mesh interface
                        const BlockTridiags<MatrixType> &btdm, // packed block tridiagonal matrices
-                       const BlockHelperDetails::AmD<MatrixType> &amd, // R = A - D
                        /* */ typename BlockHelperDetails::ImplType<MatrixType>::vector_type_1d_view &work, // workspace for packed multivector of right hand side
                        /* */ BlockHelperDetails::NormManager<MatrixType> &norm_manager,
                        // preconditioner parameters
@@ -4865,28 +3924,20 @@ namespace Ifpack2 {
       IFPACK2_BLOCKHELPER_TIMER("BlockTriDi::ApplyInverseJacobi", ApplyInverseJacobi);
 
       using impl_type = BlockHelperDetails::ImplType<MatrixType>;
-      using node_memory_space = typename impl_type::node_memory_space;
       using local_ordinal_type = typename impl_type::local_ordinal_type;
       using size_type = typename impl_type::size_type;
       using impl_scalar_type = typename impl_type::impl_scalar_type;
       using magnitude_type = typename impl_type::magnitude_type;
-      using local_ordinal_type_1d_view = typename impl_type::local_ordinal_type_1d_view;
       using vector_type_1d_view = typename impl_type::vector_type_1d_view;
       using vector_type_3d_view = typename impl_type::vector_type_3d_view;
-      using tpetra_multivector_type = typename impl_type::tpetra_multivector_type;
 
       using impl_scalar_type_1d_view = typename impl_type::impl_scalar_type_1d_view;
 
-      // either tpetra importer or async importer must be active
-      TEUCHOS_TEST_FOR_EXCEPT_MSG(!tpetra_importer.is_null() && !async_importer.is_null(),
-                                  "Neither Tpetra importer nor Async importer is null.");
       // max number of sweeps should be positive number
       TEUCHOS_TEST_FOR_EXCEPT_MSG(max_num_sweeps <= 0,
                                   "Maximum number of sweeps must be >= 1.");
 
       // const parameters
-      const bool is_seq_method_requested = !tpetra_importer.is_null();
-      const bool is_async_importer_active = !async_importer.is_null();
       const bool is_norm_manager_active = tol > Kokkos::ArithTraits<magnitude_type>::zero();
       const magnitude_type tolerance = tol*tol;
       const local_ordinal_type blocksize = btdm.values.extent(1);
@@ -4894,18 +3945,8 @@ namespace Ifpack2 {
       const local_ordinal_type num_blockrows = interf.part2packrowidx0_back;
 
       const impl_scalar_type zero(0.0);
-
-      TEUCHOS_TEST_FOR_EXCEPT_MSG(is_norm_manager_active && is_seq_method_requested,
-                                  "The seq method for applyInverseJacobi, " <<
-                                  "which in any case is for developer use only, " <<
-                                  "does not support norm-based termination.");
-      const bool device_accessible_from_host = Kokkos::SpaceAccessibility<
-        Kokkos::DefaultHostExecutionSpace, node_memory_space>::accessible;
-      TEUCHOS_TEST_FOR_EXCEPTION(is_seq_method_requested && !device_accessible_from_host,
-                                 std::invalid_argument,
-                                 "The seq method for applyInverseJacobi, " <<
-                                 "which in any case is for developer use only, " <<
-                                 "only supports memory spaces accessible from host.");
+      const impl_scalar_type one(1.0);
+      const impl_scalar_type mone = impl_scalar_type(-one);
 
       // if workspace is needed more, resize it
       const size_type work_span_required = num_blockrows*num_vectors*blocksize;
@@ -4916,20 +3957,6 @@ namespace Ifpack2 {
       const local_ordinal_type W_size = interf.packptr.extent(0)-1;
       if (local_ordinal_type(W.extent(0)) < W_size)
         W = impl_scalar_type_1d_view("W", W_size);
-
-      typename impl_type::impl_scalar_type_2d_view_tpetra remote_multivector;
-      {
-        if (is_seq_method_requested) {
-          if (Z.getNumVectors() != Y.getNumVectors())
-            Z = tpetra_multivector_type(tpetra_importer->getTargetMap(), num_vectors, false);
-        } else {
-          if (is_async_importer_active) {
-            // create comm data buffer and keep it here
-            async_importer->createDataBuffer(num_vectors);
-            remote_multivector = async_importer->getRemoteMultiVectorLocalView();
-          }
-        }
-      }
 
       // wrap the workspace with 3d view
       vector_type_3d_view pmv(work.data(), num_blockrows, blocksize, num_vectors);
@@ -4942,25 +3969,12 @@ namespace Ifpack2 {
       SolveTridiags<MatrixType> solve_tridiags(interf, btdm, pmv,
                                                damping_factor, is_norm_manager_active);
 
-      const local_ordinal_type_1d_view dummy_local_ordinal_type_1d_view;
-
-
-      auto A_crs = Teuchos::rcp_dynamic_cast<const typename impl_type::tpetra_crs_matrix_type>(A);
-      auto A_bcrs = Teuchos::rcp_dynamic_cast<const typename impl_type::tpetra_block_crs_matrix_type>(A);
-
-      bool hasBlockCrsMatrix = ! A_bcrs.is_null ();
-
-      // This is OK here to use the graph of the A_crs matrix and a block size of 1
-      const auto g = hasBlockCrsMatrix ? A_bcrs->getCrsGraph() : *(A_crs->getCrsGraph()); // tpetra crs graph object
-
-      BlockHelperDetails::ComputeResidualVector<MatrixType>
-        compute_residual_vector(amd, G->getLocalGraphDevice(), g.getLocalGraphDevice(), blocksize, interf,
-                                is_async_importer_active ? async_importer->dm2cm : dummy_local_ordinal_type_1d_view);
-
       // norm manager workspace resize
       if (is_norm_manager_active)
         norm_manager.setCheckFrequency(check_tol_every);
 
+      Z = Tpetra::createCopy(Y);
+    
       // iterate
       int sweep = 0;
       for (;sweep<max_num_sweeps;++sweep) {
@@ -4968,37 +3982,42 @@ namespace Ifpack2 {
           if (is_y_zero) {
             // pmv := x(lclrow)
             multivector_converter.run(XX);
+            Z.putScalar(zero);
           } else {
-            if (is_seq_method_requested) {
-              // SEQ METHOD IS TESTING ONLY
+            {
+              IFPACK2_BLOCKHELPER_PROFILER_REGION_BEGIN;
+              IFPACK2_BLOCKHELPER_TIMER("BlockTriDi::ComputeResidual",ComputeResidual);
 
-              // y := x - R y
-              Z.doImport(Y, *tpetra_importer, Tpetra::REPLACE);
-              compute_residual_vector.run(YY, XX, ZZ);
+              // y := x - A z
+              if (false) {
+                {
+                  IFPACK2_BLOCKHELPER_TIMER("BlockTriDi::ComputeResidual::assign",assign);
+                  Y.assign(X);
+                  IFPACK2_BLOCKHELPER_TIMER_FENCE(typename impl_type::execution_space)
+                }
+                {
+                  IFPACK2_BLOCKHELPER_TIMER("BlockTriDi::ComputeResidual::apply",apply);
+                  A->apply(Z, Y, Teuchos::NO_TRANS, mone, one);
+                  IFPACK2_BLOCKHELPER_TIMER_FENCE(typename impl_type::execution_space)
+                }
+              }
+              else
+              {
+                IFPACK2_BLOCKHELPER_TIMER("BlockTriDi::ComputeResidual::residual",residual);
+                Tpetra::Details::residual(*A, Z, X, Y);
+                IFPACK2_BLOCKHELPER_TIMER_FENCE(typename impl_type::execution_space)
+              }
 
               // pmv := y(lclrow).
-              multivector_converter.run(YY);
-            } else {
-              // fused y := x - R y and pmv := y(lclrow);
-              // real use case does not use overlap comp and comm
-              if (overlap_communication_and_computation || !is_async_importer_active) {
-                if (is_async_importer_active) async_importer->asyncSendRecv(YY);
-                compute_residual_vector.run(pmv, XX, YY, remote_multivector, true);
-                if (is_norm_manager_active && norm_manager.checkDone(sweep, tolerance)) {
-                  if (is_async_importer_active) async_importer->cancel();
-                  break;
-                }
-                if (is_async_importer_active) {
-                  async_importer->syncRecv();
-                  compute_residual_vector.run(pmv, XX, YY, remote_multivector, false);
-                }
-              } else {
-                if (is_async_importer_active)
-                  async_importer->syncExchange(YY);
-                if (is_norm_manager_active && norm_manager.checkDone(sweep, tolerance)) break;
-                compute_residual_vector.run(pmv, XX, YY, remote_multivector);
+              {
+                IFPACK2_BLOCKHELPER_TIMER("BlockTriDi::ComputeResidual::MVConverter",MVConverter);
+                multivector_converter.run(YY);
+                IFPACK2_BLOCKHELPER_TIMER_FENCE(typename impl_type::execution_space)
               }
+              IFPACK2_BLOCKHELPER_PROFILER_REGION_END;
+              IFPACK2_BLOCKHELPER_TIMER_FENCE(typename impl_type::execution_space)
             }
+            if (is_norm_manager_active && norm_manager.checkDone(sweep, tolerance)) break;
           }
         }
 
@@ -5006,6 +4025,15 @@ namespace Ifpack2 {
         {
           solve_tridiags.run(YY, W);
         }
+
+        {
+          IFPACK2_BLOCKHELPER_TIMER("BlockTriDi::ComputeResidual::update",update);
+          Y.update(one, Z, damping_factor);
+          Z.assign(Y);
+          multivector_converter.run(YY);
+          IFPACK2_BLOCKHELPER_TIMER_FENCE(typename impl_type::execution_space)
+        }
+
         {
           if (is_norm_manager_active) {
             // y(lclrow) = (b - a) y(lclrow) + a pmv, with b = 1 always.
@@ -5033,16 +4061,11 @@ namespace Ifpack2 {
       using impl_type = BlockHelperDetails::ImplType<MatrixType>;
       using part_interface_type = BlockHelperDetails::PartInterface<MatrixType>;
       using block_tridiags_type = BlockTridiags<MatrixType>;
-      using amd_type = BlockHelperDetails::AmD<MatrixType>;
       using norm_manager_type = BlockHelperDetails::NormManager<MatrixType>;
-      using async_import_type = AsyncableImport<MatrixType>;
 
       // distructed objects
       Teuchos::RCP<const typename impl_type::tpetra_row_matrix_type> A;
       Teuchos::RCP<const typename impl_type::tpetra_crs_graph_type> blockGraph;
-      Teuchos::RCP<const typename impl_type::tpetra_import_type> tpetra_importer;
-      Teuchos::RCP<async_import_type> async_importer;
-      bool overlap_communication_and_computation;
 
       // copy of Y (mutable to penentrate const)
       mutable typename impl_type::tpetra_multivector_type Z;
@@ -5051,7 +4074,6 @@ namespace Ifpack2 {
       // local objects
       part_interface_type part_interface;
       block_tridiags_type block_tridiags; // D
-      amd_type a_minus_d; // R = A - D
       mutable typename impl_type::vector_type_1d_view work; // right hand side workspace
       mutable norm_manager_type norm_manager;
     };

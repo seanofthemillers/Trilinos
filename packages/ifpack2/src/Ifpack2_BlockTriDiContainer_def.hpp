@@ -84,36 +84,6 @@ namespace Ifpack2 {
       }
       IFPACK2_BLOCKHELPER_TIMER_FENCE(typename BlockHelperDetails::ImplType<MatrixType>::execution_space)
     }
-
-    impl_->tpetra_importer = Teuchos::null;
-    impl_->async_importer  = Teuchos::null;
-    
-    if (useSeqMethod)
-    {
-      IFPACK2_BLOCKHELPER_TIMER("BlockTriDiContainer::createBlockCrsTpetraImporter useSeqMethod", useSeqMethod);
-      if (importer.is_null()) // there is no given importer, then create one
-        impl_->tpetra_importer = BlockTriDiContainerDetails::createBlockCrsTpetraImporter<MatrixType>(impl_->A);
-      else
-        impl_->tpetra_importer = importer; // if there is a given importer, use it
-      IFPACK2_BLOCKHELPER_TIMER_FENCE(typename BlockHelperDetails::ImplType<MatrixType>::execution_space)
-    }
-    else
-    {
-      IFPACK2_BLOCKHELPER_TIMER("BlockTriDiContainer::createBlockCrsTpetraImporter", createBlockCrsTpetraImporter);
-      //Leave tpetra_importer null even if user provided an importer.
-      //It is not used in the performant codepath (!useSeqMethod)
-      impl_->async_importer = BlockTriDiContainerDetails::createBlockCrsAsyncImporter<MatrixType>(impl_->A);
-      IFPACK2_BLOCKHELPER_TIMER_FENCE(typename BlockHelperDetails::ImplType<MatrixType>::execution_space)
-    }
-
-    // as a result, there are 
-    // 1) tpetra_importer is     null , async_importer is     null (no need for importer)
-    // 2) tpetra_importer is NOT null , async_importer is     null (sequential method is used)
-    // 3) tpetra_importer is     null , async_importer is NOT null (async method is used)
-
-    // temporary disabling 
-    impl_->overlap_communication_and_computation = overlapCommAndComp;
-
     {
       IFPACK2_BLOCKHELPER_TIMER("BlockTriDiContainer::createZ", createZ);
       impl_->Z = typename impl_type::tpetra_multivector_type();
@@ -137,19 +107,15 @@ namespace Ifpack2 {
     using impl_type = BlockHelperDetails::ImplType<MatrixType>;
     using part_interface_type = BlockHelperDetails::PartInterface<MatrixType>;
     using block_tridiags_type = BlockTriDiContainerDetails::BlockTridiags<MatrixType>;
-    using amd_type = BlockHelperDetails::AmD<MatrixType>;
     using norm_manager_type = BlockHelperDetails::NormManager<MatrixType>;
     
     impl_->A = Teuchos::null;
-    impl_->tpetra_importer = Teuchos::null;
-    impl_->async_importer  = Teuchos::null;
 
     impl_->Z = typename impl_type::tpetra_multivector_type();
     impl_->W = typename impl_type::impl_scalar_type_1d_view();
 
     impl_->part_interface  = part_interface_type();
     impl_->block_tridiags  = block_tridiags_type();
-    impl_->a_minus_d       = amd_type();
     impl_->work            = typename impl_type::vector_type_1d_view();
     impl_->norm_manager    = norm_manager_type();
 
@@ -247,12 +213,9 @@ namespace Ifpack2 {
     TEUCHOS_ASSERT(!impl_->A.is_null()); // when initInternal is called, A_ must be set
     {
       BlockTriDiContainerDetails::performSymbolicPhase<MatrixType>
-        (impl_->A, 
+        (impl_->A,
          impl_->blockGraph, 
-         impl_->part_interface, 
-         impl_->block_tridiags, 
-         impl_->a_minus_d, 
-         impl_->overlap_communication_and_computation);    
+         impl_->part_interface, impl_->block_tridiags);
     }
     IFPACK2_BLOCKHELPER_TIMER_FENCE(typename BlockHelperDetails::ImplType<MatrixType>::execution_space)
   }
@@ -302,12 +265,8 @@ namespace Ifpack2 {
 
     BlockTriDiContainerDetails::applyInverseJacobi<MatrixType>
       (impl_->A,
-       impl_->blockGraph,
-       impl_->tpetra_importer, 
-       impl_->async_importer, 
-       impl_->overlap_communication_and_computation,
        X, Y, impl_->Z, impl_->W,
-       impl_->part_interface, impl_->block_tridiags, impl_->a_minus_d,
+       impl_->part_interface, impl_->block_tridiags,
        impl_->work,
        impl_->norm_manager,
        dampingFactor,
@@ -367,12 +326,8 @@ namespace Ifpack2 {
     {
       r_val = BlockTriDiContainerDetails::applyInverseJacobi<MatrixType>
         (impl_->A,
-         impl_->blockGraph,
-         impl_->tpetra_importer, 
-         impl_->async_importer,
-         impl_->overlap_communication_and_computation,
          X, Y, impl_->Z, impl_->W,
-         impl_->part_interface, impl_->block_tridiags, impl_->a_minus_d,
+         impl_->part_interface, impl_->block_tridiags,
          impl_->work,
          impl_->norm_manager,
          in.dampingFactor,

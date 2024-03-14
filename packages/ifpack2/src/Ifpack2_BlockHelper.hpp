@@ -495,6 +495,70 @@ namespace Ifpack2 {
       IFPACK2_BLOCKHELPER_TIMER_FENCE(typename ImplType<MatrixType>::execution_space)
     }
 
+    template<typename MatrixType>
+    struct PartInterface {
+      using local_ordinal_type = typename BlockHelperDetails::ImplType<MatrixType>::local_ordinal_type;
+      using local_ordinal_type_1d_view = typename BlockHelperDetails::ImplType<MatrixType>::local_ordinal_type_1d_view;
+      using local_ordinal_type_2d_view = typename BlockHelperDetails::ImplType<MatrixType>::local_ordinal_type_2d_view;
+
+      PartInterface() = default;
+      PartInterface(const PartInterface &b) = default;
+
+      // Some terms:
+      //   The matrix A is split as A = D + R, where D is the matrix of tridiag
+      // blocks and R is the remainder.
+      //   A part is roughly a synonym for a tridiag. The distinction is that a part
+      // is the set of rows belonging to one tridiag and, equivalently, the off-diag
+      // rows in R associated with that tridiag. In contrast, the term tridiag is
+      // used to refer specifically to tridiag data, such as the pointer into the
+      // tridiag data array.
+      //   Local (lcl) row are the LIDs. lclrow lists the LIDs belonging to each
+      // tridiag, and partptr points to the beginning of each tridiag. This is the
+      // LID space.
+      //   Row index (idx) is the ordinal in the tridiag ordering. lclrow is indexed
+      // by this ordinal. This is the 'index' space.
+      //   A flat index is the mathematical index into an array. A pack index
+      // accounts for SIMD packing.
+
+      // Local row LIDs. Permutation from caller's index space to tridiag index
+      // space.
+      local_ordinal_type_1d_view lclrow;
+      // partptr_ is the pointer array into lclrow_.
+      local_ordinal_type_1d_view partptr; // np+1
+      local_ordinal_type_2d_view partptr_sub;
+      local_ordinal_type_1d_view partptr_schur;
+      // packptr_(i), for i the pack index, indexes partptr_. partptr_(packptr_(i))
+      // is the start of the i'th pack.
+      local_ordinal_type_1d_view packptr; // npack+1
+      local_ordinal_type_1d_view packptr_sub;
+      local_ordinal_type_1d_view packindices_sub;
+      local_ordinal_type_2d_view packindices_schur;
+      // part2rowidx0_(i) is the flat row index of the start of the i'th part. It's
+      // an alias of partptr_ in the case of no overlap.
+      local_ordinal_type_1d_view part2rowidx0; // np+1
+      local_ordinal_type_1d_view part2rowidx0_sub;
+      // part2packrowidx0_(i) is the packed row index. If vector_length is 1, then
+      // it's the same as part2rowidx0_; if it's > 1, then the value is combined
+      // with i % vector_length to get the location in the packed data.
+      local_ordinal_type_1d_view part2packrowidx0; // np+1
+      local_ordinal_type_2d_view part2packrowidx0_sub;
+      local_ordinal_type part2packrowidx0_back; // So we don't need to grab the array from the GPU.
+      // rowidx2part_ maps the row index to the part index.
+      local_ordinal_type_1d_view rowidx2part; // nr
+      local_ordinal_type_1d_view rowidx2part_sub;
+      // True if lcl{row|col} is at most a constant away from row{idx|col}. In
+      // practice, this knowledge is not particularly useful, as packing for batched
+      // processing is done at the same time as the permutation from LID to index
+      // space. But it's easy to detect, so it's recorded in case an optimization
+      // can be made based on it.
+      bool row_contiguous;
+
+      local_ordinal_type max_partsz;
+      local_ordinal_type max_subpartsz;
+      local_ordinal_type n_subparts_per_part;
+      local_ordinal_type nparts;
+    };
+
   } // namespace BlockHelperDetails
 
 } // namespace Ifpack2
