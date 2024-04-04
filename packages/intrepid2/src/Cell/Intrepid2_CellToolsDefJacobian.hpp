@@ -875,10 +875,15 @@ namespace Intrepid2 {
     case 3: { 
       // For CVFEM
       grads = GradViewType(Kokkos::view_alloc("CellTools::setJacobian::grads", vcprop), numCells, basisCardinality, numPoints, spaceDim);
-      for (ordinal_type cell=0;cell<numCells;++cell) 
-        basis->getValues(Kokkos::subview( grads,  cell, Kokkos::ALL(), Kokkos::ALL(), Kokkos::ALL() ),  
-                         Kokkos::subview( points, cell, Kokkos::ALL(), Kokkos::ALL() ),  
+      if(basis->supportsCellExtrusion())
+        basis->getValues(grads, 
+                         points, 
                          OPERATOR_GRAD);
+      else
+        for (ordinal_type cell=0;cell<numCells;++cell) 
+          basis->getValues(Kokkos::subview( grads,  cell, Kokkos::ALL(), Kokkos::ALL(), Kokkos::ALL() ),  
+                           Kokkos::subview( points, cell, Kokkos::ALL(), Kokkos::ALL() ),  
+                           OPERATOR_GRAD);
       break;
     }
     }

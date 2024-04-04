@@ -56,6 +56,7 @@
 #include "Kokkos_Core.hpp"
 #include "Kokkos_Macros.hpp" // provides some preprocessor values used in definitions of INTREPID2_DEPRECATED, etc.
 #include "Kokkos_Random.hpp"
+#include "Kokkos_DynRankView_Fad.hpp"
 
 #ifdef HAVE_INTREPID2_SACADO
 #include "Kokkos_LayoutNatural.hpp"
@@ -838,6 +839,46 @@ namespace Intrepid2 {
   {
     return (std::is_pod<typename ViewType::value_type>::value) ? 0 : get_dimension_scalar(view);
   }
+
+  /**
+   \brief Maps from a lower rank tensor to a higher rank tensor
+
+   TODO: This function needs to be relocated. 
+   A similar tool can be found in Intrepid2_Data.hpp, and we may be able to fold this into it.
+
+  */
+  template<typename Scalar,typename...Props>
+  auto
+  extrudeView(Kokkos::DynRankView<Scalar,Props...> f,
+              const int toRank) {
+
+    using InputViewType =  Kokkos::DynRankView<Scalar,Props...>;
+    using OutputViewType = Kokkos::DynRankView<Scalar,Kokkos::LayoutStride,typename InputViewType::memory_space,Kokkos::MemoryUnmanaged>;
+    using RawScalarType = typename Sacado::ScalarType< typename InputViewType::value_type >::type;
+    
+    // We assume layout is always a LayoutStride
+    const int rank = f.rank();
+    const auto & existing_layout = static_cast<const Kokkos::LayoutStride&>(f.layout());
+    Kokkos::LayoutStride new_layout;
+    {
+      for(int i=0; i<Kokkos::ARRAY_LAYOUT_MAX_RANK; ++i){
+        new_layout.dimension[i] = KOKKOS_IMPL_CTOR_DEFAULT_ARG;
+        new_layout.stride[i] = 0;
+      }
+      int i=0;
+      for(;i<toRank-rank;++i){
+        new_layout.dimension[i] = 1;
+        new_layout.stride[i] = 0;
+      }
+      for(int j=0; j<rank; ++j,++i){
+        new_layout.dimension[i] = existing_layout.dimension[j];
+        new_layout.stride[i] = existing_layout.stride[j];
+      }
+    }
+
+    return OutputViewType(static_cast<RawScalarType*>(f.data()),new_layout);
+  }
+
 } // end namespace Intrepid2
 
 #endif

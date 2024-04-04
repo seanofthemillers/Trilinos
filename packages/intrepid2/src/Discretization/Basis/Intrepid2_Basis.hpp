@@ -977,6 +977,16 @@ using HostBasisPtr = BasisPtr<typename Kokkos::HostSpace::device_type, OutputTyp
                                     ">>> ERROR (Basis::getHostBasis): this method is not supported or should be overridden accordingly by derived classes.");
     }
 
+    /** \brief Check if cell extruded arrays are supported.
+     
+     If true, then basis 'getValues' call supports points arrays with (cell,point,dim) extents in addition
+     to (point,dim) extents. Note that output values array must also be extruded.
+
+     \return True if cell extruded arrays are supported.
+    */
+    virtual bool
+    supportsCellExtrusion() const {return false;}
+
   }; // class Basis
 
   //--------------------------------------------------------------------------------------------//

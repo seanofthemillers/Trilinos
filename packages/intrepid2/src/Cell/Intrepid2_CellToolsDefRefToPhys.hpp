@@ -201,21 +201,26 @@ namespace Intrepid2 {
       // refPoints is (P,D): single set of ref. points is mapped to one or multiple physical cells
       vals = valViewType(Kokkos::view_alloc("CellTools::mapToPhysicalFrame::vals", vcprop), basisCardinality, numPoints);
       basis->getValues(vals,
-                       refPoints,
-                       OPERATOR_VALUE);
+                      refPoints,
+                      OPERATOR_VALUE);
       break;
     }
     case 3: {
       // refPoints is (C,P,D): multiple sets of ref. points are mapped to matching number of physical cells.
-      //vals = valViewType("CellTools::mapToPhysicalFrame::vals", numCells, basisCardinality, numPoints);
       vals = valViewType(Kokkos::view_alloc("CellTools::mapToPhysicalFrame::vals", vcprop), numCells, basisCardinality, numPoints);
-      for (size_type cell=0;cell<numCells;++cell)
-        basis->getValues(Kokkos::subdynrankview( vals,      cell, Kokkos::ALL(), Kokkos::ALL() ),
-                         Kokkos::subdynrankview( refPoints, cell, Kokkos::ALL(), Kokkos::ALL() ),
+      if(basis->supportsCellExtrusion())
+        basis->getValues(vals,
+                         refPoints,
                          OPERATOR_VALUE);
+      else
+        for (size_type cell=0;cell<numCells;++cell)
+          basis->getValues(Kokkos::subdynrankview( vals,      cell, Kokkos::ALL(), Kokkos::ALL() ),
+                           Kokkos::subdynrankview( refPoints, cell, Kokkos::ALL(), Kokkos::ALL() ),
+                           OPERATOR_VALUE);
       break;
     }
     }
+
     
     using FunctorType    = FunctorCellTools::F_mapToPhysicalFrame<PhysPointViewType,WorksetType,valViewType>;
 
