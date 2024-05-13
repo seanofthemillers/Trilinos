@@ -125,19 +125,44 @@ namespace Intrepid2 {
                        inputPointViewType  inputPoints_ )
           : _outputValues(outputValues_), _inputPoints(inputPoints_) {}
 
+        // KOKKOS_INLINE_FUNCTION
+        // void operator()(const ordinal_type pt) const {
+        //   switch (opType) {
+        //   case OPERATOR_VALUE : {
+        //     auto       output = Kokkos::subview( _outputValues, Kokkos::ALL(), pt );
+        //     const auto input  = Kokkos::subview( _inputPoints,                 pt, Kokkos::ALL() );
+        //     Serial<opType>::getValues( output, input );
+        //     break;
+        //   }
+        //   case OPERATOR_GRAD :
+        //   case OPERATOR_MAX : {
+        //     auto       output = Kokkos::subview( _outputValues, Kokkos::ALL(), pt, Kokkos::ALL() );
+        //     const auto input  = Kokkos::subview( _inputPoints,                 pt, Kokkos::ALL() );
+        //     Serial<opType>::getValues( output, input );
+        //     break;
+        //   }
+        //   default: {
+        //     INTREPID2_TEST_FOR_ABORT( opType != OPERATOR_VALUE &&
+        //                               opType != OPERATOR_GRAD &&
+        //                               opType != OPERATOR_MAX,
+        //                               ">>> ERROR: (Intrepid2::Basis_HGRAD_TET_C1_FEM::Serial::getValues) operator is not supported");
+        //   }
+        //   }
+        // }
+
         KOKKOS_INLINE_FUNCTION
-        void operator()(const ordinal_type pt) const {
+        void operator()(const ordinal_type cell, const ordinal_type pt) const {
           switch (opType) {
           case OPERATOR_VALUE : {
-            auto       output = Kokkos::subview( _outputValues, Kokkos::ALL(), pt );
-            const auto input  = Kokkos::subview( _inputPoints,                 pt, Kokkos::ALL() );
+            auto       output = Kokkos::subview( _outputValues, cell, Kokkos::ALL(), pt );
+            const auto input  = Kokkos::subview( _inputPoints,  cell,                pt, Kokkos::ALL() );
             Serial<opType>::getValues( output, input );
             break;
           }
           case OPERATOR_GRAD :
           case OPERATOR_MAX : {
-            auto       output = Kokkos::subview( _outputValues, Kokkos::ALL(), pt, Kokkos::ALL() );
-            const auto input  = Kokkos::subview( _inputPoints,                 pt, Kokkos::ALL() );
+            auto       output = Kokkos::subview( _outputValues, cell, Kokkos::ALL(), pt, Kokkos::ALL() );
+            const auto input  = Kokkos::subview( _inputPoints,  cell,                pt, Kokkos::ALL() );
             Serial<opType>::getValues( output, input );
             break;
           }

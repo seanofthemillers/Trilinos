@@ -56,6 +56,7 @@
 #include "Kokkos_Core.hpp"
 #include "Kokkos_Macros.hpp" // provides some preprocessor values used in definitions of INTREPID2_DEPRECATED, etc.
 #include "Kokkos_Random.hpp"
+#include "Kokkos_DynRankView_Fad.hpp"
 
 #ifdef HAVE_INTREPID2_SACADO
 #include "Kokkos_LayoutNatural.hpp"
@@ -838,6 +839,120 @@ namespace Intrepid2 {
   {
     return (std::is_pod<typename ViewType::value_type>::value) ? 0 : get_dimension_scalar(view);
   }
+
+  /**
+   \brief Maps from a lower rank tensor to a higher rank tensor
+
+  */
+  template<typename Scalar,typename...Props>
+  auto
+  extrudeView(Kokkos::DynRankView<Scalar,Props...> f,
+              const int toRank) {
+
+    using InputViewType =  Kokkos::DynRankView<Scalar,Props...>;
+    using OutputViewType = Kokkos::DynRankView<Scalar,Props...,Kokkos::MemoryUnmanaged>;
+    const int rank = f.rank();
+    
+    //TEUCHOS_ASSERT( rank > 0 );
+    //TEUCHOS_ASSERT( toRank >= rank );
+
+    std::vector<int> extent;
+    for(int i=0;i<toRank-rank;++i)
+      extent.push_back(1);
+    for(int j=0; j<rank; ++j)
+      extent.push_back(f.extent(j));
+
+    // if (Sacado::IsFad<Scalar>::value)
+    {
+      const int num_derivatives = Kokkos::dimension_scalar(f);
+      if(num_derivatives == 1)
+        extent.push_back(num_derivatives);
+    }
+    const int actualRank = extent.size();
+
+    std::cout << "Array ("<<sizeof(Scalar)<<" - "<<typeid(Scalar).name()<<"): ";
+    std::cout << "  raw extent: ";
+    for(int i=0; i<f.rank(); ++i) std::cout << f.extent(i) << " ";
+    std::cout << std::endl;
+    std::cout << "  new extent: ";
+    for(size_t i=0; i<extent.size(); ++i) std::cout << extent[i] << " ";
+    std::cout << std::endl;
+
+    OutputViewType tmp;
+    Scalar * data = f.data();
+    if (actualRank==1)
+      tmp = OutputViewType(data,extent[0]);
+    else if (actualRank==2)
+      tmp = OutputViewType(data,extent[0],extent[1]);
+    else if (actualRank==3)
+      tmp = OutputViewType(data,extent[0],extent[1],extent[2]);
+    else if (actualRank==4)
+      tmp = OutputViewType(data,extent[0],extent[1],extent[2],extent[3]);
+    else if (actualRank==5)
+      tmp = OutputViewType(data,extent[0],extent[1],extent[2],extent[3],extent[4]);
+    else if (actualRank==6)
+      tmp = OutputViewType(data,extent[0],extent[1],extent[2],extent[3],extent[4],extent[5]);
+    else if (actualRank==7)
+      tmp = OutputViewType(data,extent[0],extent[1],extent[2],extent[3],extent[4],extent[5],extent[6]);
+    else {
+      // Throw error
+    }
+
+    return tmp;
+  }
+
+
+  /** 
+   \brief Applies a functor to an input array to an output array for various ranks.
+
+   I don't have a good place to put this, but it is shared across all the Basis definitions.
+  */
+  template<typename DT,
+           typename FunctorType,
+           typename OutputViewType,
+           typename InputViewType>
+  void
+  applyFunctorToSubArray(const typename DT::execution_space& space,
+                               OutputViewType outputView,
+                         const InputViewType  inputView)
+  {
+    typedef typename ExecSpace<typename InputViewType::execution_space,typename DT::execution_space>::ExecSpaceType ExecSpaceType;
+    
+    const auto loopSize = inputView.extent(0);
+    Kokkos::RangePolicy<ExecSpaceType,Kokkos::Schedule<Kokkos::Static> > policy(space, 0, loopSize);
+
+    const int inputRank = inputView.rank();
+    const int outputRank = outputView.rank();
+
+    if(inputRank == 2){
+      Kokkos::parallel_for( policy, FunctorType(outputView, inputView) );
+    } else if(inputRank == 3){
+
+      if(outputRank == 3){
+        Kokkos::parallel_for( policy, KOKKOS_LAMBDA(int cell){
+          auto output = Kokkos::subview( outputView, cell, Kokkos::ALL(), Kokkos::ALL() );
+          auto input = Kokkos::subview( inputView, cell, Kokkos::ALL(), Kokkos::ALL() );
+          FunctorType functor(output,input);
+          for(int i=0; i<input.extent(0); ++i)
+            functor(i);
+        });
+      } else if(outputRank == 4){
+        Kokkos::parallel_for( policy, KOKKOS_LAMBDA(int cell){
+          auto output = Kokkos::subview( outputView, cell, Kokkos::ALL(), Kokkos::ALL(), Kokkos::ALL() );
+          auto input = Kokkos::subview( inputView, cell, Kokkos::ALL(), Kokkos::ALL() );
+          FunctorType functor(output,input);
+          for(int i=0; i<input.extent(0); ++i)
+            functor(i);
+        });
+      } else {
+        // Throw error
+      }
+    } else {
+      // Throw error
+    }
+   
+  }
+
 } // end namespace Intrepid2
 
 #endif
