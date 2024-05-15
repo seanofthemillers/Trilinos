@@ -850,55 +850,90 @@ namespace Intrepid2 {
               const int toRank) {
 
     using InputViewType =  Kokkos::DynRankView<Scalar,Props...>;
-    using OutputViewType = Kokkos::DynRankView<Scalar,Props...,Kokkos::MemoryUnmanaged>;
-    const int rank = f.rank();
+    using OutputViewType = Kokkos::DynRankView<Scalar,Kokkos::LayoutStride,typename InputViewType::memory_space,Kokkos::MemoryUnmanaged>;
+    using RawScalarType = typename Sacado::ScalarType< typename InputViewType::value_type >::type;
     
-    //TEUCHOS_ASSERT( rank > 0 );
-    //TEUCHOS_ASSERT( toRank >= rank );
-
-    std::vector<int> extent;
-    for(int i=0;i<toRank-rank;++i)
-      extent.push_back(1);
-    for(int j=0; j<rank; ++j)
-      extent.push_back(f.extent(j));
-
-    // if (Sacado::IsFad<Scalar>::value)
+    // We assume layout is always a LayoutStride
+    const int rank = f.rank();
+    const auto & existing_layout = static_cast<const Kokkos::LayoutStride&>(f.layout());
+    Kokkos::LayoutStride new_layout;
+    int actualRank;
     {
-      const int num_derivatives = Kokkos::dimension_scalar(f);
-      if(num_derivatives == 1)
-        extent.push_back(num_derivatives);
-    }
-    const int actualRank = extent.size();
-
-    std::cout << "Array ("<<sizeof(Scalar)<<" - "<<typeid(Scalar).name()<<"): ";
-    std::cout << "  raw extent: ";
-    for(int i=0; i<f.rank(); ++i) std::cout << f.extent(i) << " ";
-    std::cout << std::endl;
-    std::cout << "  new extent: ";
-    for(size_t i=0; i<extent.size(); ++i) std::cout << extent[i] << " ";
-    std::cout << std::endl;
-
-    OutputViewType tmp;
-    Scalar * data = f.data();
-    if (actualRank==1)
-      tmp = OutputViewType(data,extent[0]);
-    else if (actualRank==2)
-      tmp = OutputViewType(data,extent[0],extent[1]);
-    else if (actualRank==3)
-      tmp = OutputViewType(data,extent[0],extent[1],extent[2]);
-    else if (actualRank==4)
-      tmp = OutputViewType(data,extent[0],extent[1],extent[2],extent[3]);
-    else if (actualRank==5)
-      tmp = OutputViewType(data,extent[0],extent[1],extent[2],extent[3],extent[4]);
-    else if (actualRank==6)
-      tmp = OutputViewType(data,extent[0],extent[1],extent[2],extent[3],extent[4],extent[5]);
-    else if (actualRank==7)
-      tmp = OutputViewType(data,extent[0],extent[1],extent[2],extent[3],extent[4],extent[5],extent[6]);
-    else {
-      // Throw error
+      for(int i=0; i<Kokkos::ARRAY_LAYOUT_MAX_RANK; ++i){
+        new_layout.dimension[i] = KOKKOS_IMPL_CTOR_DEFAULT_ARG;
+        new_layout.stride[i] = 0;
+      }
+      int i=0;
+      for(;i<toRank-rank;++i){
+        new_layout.dimension[i] = 1;
+        new_layout.stride[i] = 0;
+      }
+      for(int j=0; j<rank; ++j,++i){
+        new_layout.dimension[i] = existing_layout.dimension[j];
+        new_layout.stride[i] = existing_layout.stride[j];
+      }
+      actualRank=i;
+      // if (Sacado::IsFad<Scalar>::value)
+      // {
+      //   const int num_derivatives = Kokkos::dimension_scalar(f);
+      //   extent.push_back(num_derivatives);
+      // }
     }
 
-    return tmp;
+    std::cout << "Array ("<<sizeof(Scalar)<<" - "<<typeid(Scalar).name()<<"): " << std::endl;
+    std::cout << "  existing_layout dimension ("<<rank<<"): ";
+    for(int i=0; i<rank; ++i) std::cout << existing_layout.dimension[i] << " ";
+    std::cout << std::endl;
+    std::cout << "  existing_layout stride ("<<rank<<")   : ";
+    for(int i=0; i<rank; ++i) std::cout << existing_layout.stride[i] << " ";
+    std::cout << std::endl;
+    std::cout << "  new_layout dimension ("<<actualRank<<"): ";
+    for(int i=0; i<actualRank; ++i) std::cout << new_layout.dimension[i] << " ";
+    std::cout << std::endl;
+    std::cout << "  new_layout stride ("<<actualRank<<")   : ";
+    for(int i=0; i<actualRank; ++i) std::cout << new_layout.stride[i] << " ";
+    std::cout << std::endl;
+    // std::cout << "  values: " << std::endl;
+    // for(size_t i=0; i<f.extent(0); ++i){
+    //   std::cout << "    ";
+    //   for(size_t j=0; j<f.extent(1); ++j)
+    //     std::cout << f(i,j) << " ";
+    //   std::cout << std::endl;
+    // }
+    return OutputViewType(static_cast<RawScalarType*>(f.data()),new_layout);
+
+    // OutputViewType tmp;
+    // RawScalarType * data = f.data();
+    // if (actualRank==1)
+    //   tmp = OutputViewType(data,extent[0]);
+    // else if (actualRank==2)
+    //   tmp = OutputViewType(data,extent[0],extent[1]);
+    // else if (actualRank==3)
+    //   tmp = OutputViewType(data,extent[0],extent[1],extent[2]);
+    // else if (actualRank==4)
+    //   tmp = OutputViewType(data,extent[0],extent[1],extent[2],extent[3]);
+    // else if (actualRank==5)
+    //   tmp = OutputViewType(data,extent[0],extent[1],extent[2],extent[3],extent[4]);
+    // else if (actualRank==6)
+    //   tmp = OutputViewType(data,extent[0],extent[1],extent[2],extent[3],extent[4],extent[5]);
+    // else if (actualRank==7)
+    //   tmp = OutputViewType(data,extent[0],extent[1],extent[2],extent[3],extent[4],extent[5],extent[6]);
+    // else {
+    //   // Throw error
+    // }
+
+    // std::cout << "  new extent ("<<tmp.rank()<<"): ";
+    // for(size_t i=0; i<tmp.rank(); ++i) std::cout << tmp.extent(i) << " ";
+    // std::cout << std::endl;
+    // // std::cout << "  new values: " << std::endl;
+    // // for(size_t i=0; i<tmp.extent(1); ++i){
+    // //   std::cout << "    ";
+    // //   for(size_t j=0; j<tmp.extent(2); ++j)
+    // //     std::cout << tmp(0,i,j) << " ";
+    // //   std::cout << std::endl;
+    // // }
+
+    // return tmp;
   }
 
 
