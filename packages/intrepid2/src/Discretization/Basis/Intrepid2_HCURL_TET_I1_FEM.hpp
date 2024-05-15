@@ -217,6 +217,10 @@ namespace Intrepid2 {
                               operatorType);
     }
 
+    bool 
+    supportsCellExtrusion() const override 
+    {return true;}
+
     virtual
     void
     getDofCoords( ScalarViewType dofCoords ) const override {

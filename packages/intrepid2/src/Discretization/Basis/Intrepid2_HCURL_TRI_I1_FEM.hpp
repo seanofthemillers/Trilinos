@@ -141,17 +141,17 @@ namespace Intrepid2 {
           : _outputValues(outputValues_), _inputPoints(inputPoints_) {}
 
         KOKKOS_INLINE_FUNCTION
-        void operator()(const ordinal_type pt) const {
+        void operator()(const ordinal_type cell, const ordinal_type pt) const {
           switch (opType) {
           case OPERATOR_VALUE : {
-            auto       output = Kokkos::subview( _outputValues, Kokkos::ALL(), pt, Kokkos::ALL() );
-            const auto input  = Kokkos::subview( _inputPoints,                 pt, Kokkos::ALL() );
+            auto       output = Kokkos::subview( _outputValues, cell, Kokkos::ALL(), pt, Kokkos::ALL() );
+            const auto input  = Kokkos::subview( _inputPoints,  cell,                pt, Kokkos::ALL() );
             Serial<opType>::getValues( output, input );
             break;
           }
           case OPERATOR_CURL : {
-            auto       output = Kokkos::subview( _outputValues, Kokkos::ALL(), pt );
-            const auto input  = Kokkos::subview( _inputPoints,                 pt, Kokkos::ALL() );
+            auto       output = Kokkos::subview( _outputValues, cell, Kokkos::ALL(), pt );
+            const auto input  = Kokkos::subview( _inputPoints,  cell,                pt, Kokkos::ALL() );
             Serial<opType>::getValues( output, input );
             break;
           }
@@ -219,6 +219,10 @@ namespace Intrepid2 {
                               inputPoints,
                               operatorType);
     }
+
+    bool 
+    supportsCellExtrusion() const override 
+    {return true;}
 
     virtual
     void

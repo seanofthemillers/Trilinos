@@ -173,16 +173,18 @@ namespace Intrepid2 {
              typename inputPointValueType,  class ...inputPointProperties>
     void
     Basis_HGRAD_PYR_C1_FEM::
-    getValues(       Kokkos::DynRankView<outputValueValueType,outputValueProperties...> outputValues,
-               const Kokkos::DynRankView<inputPointValueType, inputPointProperties...>  inputPoints,
+    getValues(       Kokkos::DynRankView<outputValueValueType,outputValueProperties...> outputValuesRaw,
+               const Kokkos::DynRankView<inputPointValueType, inputPointProperties...>  inputPointsRaw,
                const EOperator operatorType )  {
-      typedef          Kokkos::DynRankView<outputValueValueType,outputValueProperties...>         outputValueViewType;
-      typedef          Kokkos::DynRankView<inputPointValueType, inputPointProperties...>          inputPointViewType;
-      typedef typename ExecSpace<typename inputPointViewType::execution_space,typename DT::execution_space>::ExecSpaceType ExecSpaceType;
+      const bool extrude=inputPointsRaw.rank()==2;
+      auto outputValues = extrudeView<outputValueValueType,outputValueProperties...>(outputValuesRaw,outputValuesRaw.rank()+(extrude?1:0));
+      auto inputPoints  = extrudeView<inputPointValueType, inputPointProperties...> (inputPointsRaw, inputPointsRaw.rank() +(extrude?1:0));
+      
+      using inputPointViewType  = decltype(inputPoints);
+      using outputValueViewType = decltype(outputValues);
 
-      // Number of evaluation points = dim 0 of inputPoints
-      const auto loopSize = inputPoints.extent(0);
-      Kokkos::RangePolicy<ExecSpaceType,Kokkos::Schedule<Kokkos::Static> > policy(0, loopSize);
+      typedef typename ExecSpace<typename inputPointViewType::execution_space,typename DT::execution_space>::ExecSpaceType ExecSpaceType;
+      Kokkos::MDRangePolicy<ExecSpaceType,Kokkos::Rank<2>,Kokkos::Schedule<Kokkos::Static> > policy({0,0}, {inputPoints.extent(0),inputPoints.extent(1)});
 
       switch (operatorType) {
 

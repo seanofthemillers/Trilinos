@@ -111,18 +111,11 @@ namespace Intrepid2 {
     getValues(       Kokkos::DynRankView<outputValueValueType,outputValueProperties...> outputValuesRaw,
                const Kokkos::DynRankView<inputPointValueType, inputPointProperties...>  inputPointsRaw,
                const EOperator operatorType )  {
-      // typedef          Kokkos::DynRankView<outputValueValueType,outputValueProperties...>         outputValueViewType;
-      // typedef          Kokkos::DynRankView<inputPointValueType, inputPointProperties...>          inputPointViewType;
-      // typedef typename ExecSpace<typename inputPointViewType::execution_space,typename DT::execution_space>::ExecSpaceType ExecSpaceType;
-
-      // Number of evaluation points = dim 0 of inputPoints
-      // const auto loopSize = inputPoints.extent(0);
-      // Kokkos::RangePolicy<ExecSpaceType,Kokkos::Schedule<Kokkos::Static> > policy(0, loopSize);
       const bool extrude=inputPointsRaw.rank()==2;
       auto outputValues = extrudeView<outputValueValueType,outputValueProperties...>(outputValuesRaw,outputValuesRaw.rank()+(extrude?1:0));
-      auto inputPoints =  extrudeView<inputPointValueType, inputPointProperties...>( inputPointsRaw, inputPointsRaw.rank()+ (extrude?1:0));
+      auto inputPoints  = extrudeView<inputPointValueType, inputPointProperties...> (inputPointsRaw, inputPointsRaw.rank() +(extrude?1:0));
       
-      using inputPointViewType = decltype(inputPoints);
+      using inputPointViewType  = decltype(inputPoints);
       using outputValueViewType = decltype(outputValues);
 
       typedef typename ExecSpace<typename inputPointViewType::execution_space,typename DT::execution_space>::ExecSpaceType ExecSpaceType;
