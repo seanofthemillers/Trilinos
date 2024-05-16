@@ -236,8 +236,8 @@ namespace Intrepid2 {
                               operatorType);
     }
 
-    bool 
-    supportsCellExtrusion() const override 
+    virtual bool
+    supportsCellExtrusion() const override
     {return true;}
 
     /** \brief  Returns spatial locations (coordinates) of degrees of freedom on a

@@ -278,8 +278,8 @@ namespace Intrepid2 {
                                 operatorType);
     }
 
-    bool 
-    supportsCellExtrusion() const override 
+    virtual bool
+    supportsCellExtrusion() const override
     {return true;}
 
     virtual
