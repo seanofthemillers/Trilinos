@@ -843,6 +843,9 @@ namespace Intrepid2 {
   /**
    \brief Maps from a lower rank tensor to a higher rank tensor
 
+   TODO: This function needs to be relocated. 
+   A similar tool can be found in Intrepid2_Data.hpp, and we may be able to fold this into it.
+
   */
   template<typename Scalar,typename...Props>
   auto
@@ -857,7 +860,6 @@ namespace Intrepid2 {
     const int rank = f.rank();
     const auto & existing_layout = static_cast<const Kokkos::LayoutStride&>(f.layout());
     Kokkos::LayoutStride new_layout;
-    int actualRank;
     {
       for(int i=0; i<Kokkos::ARRAY_LAYOUT_MAX_RANK; ++i){
         new_layout.dimension[i] = KOKKOS_IMPL_CTOR_DEFAULT_ARG;
@@ -872,120 +874,9 @@ namespace Intrepid2 {
         new_layout.dimension[i] = existing_layout.dimension[j];
         new_layout.stride[i] = existing_layout.stride[j];
       }
-      actualRank=i;
-      // if (Sacado::IsFad<Scalar>::value)
-      // {
-      //   const int num_derivatives = Kokkos::dimension_scalar(f);
-      //   extent.push_back(num_derivatives);
-      // }
     }
 
-    std::cout << "Array ("<<sizeof(Scalar)<<" - "<<typeid(Scalar).name()<<"): " << std::endl;
-    std::cout << "  existing_layout dimension ("<<rank<<"): ";
-    for(int i=0; i<rank; ++i) std::cout << existing_layout.dimension[i] << " ";
-    std::cout << std::endl;
-    std::cout << "  existing_layout stride ("<<rank<<")   : ";
-    for(int i=0; i<rank; ++i) std::cout << existing_layout.stride[i] << " ";
-    std::cout << std::endl;
-    std::cout << "  new_layout dimension ("<<actualRank<<"): ";
-    for(int i=0; i<actualRank; ++i) std::cout << new_layout.dimension[i] << " ";
-    std::cout << std::endl;
-    std::cout << "  new_layout stride ("<<actualRank<<")   : ";
-    for(int i=0; i<actualRank; ++i) std::cout << new_layout.stride[i] << " ";
-    std::cout << std::endl;
-    // std::cout << "  values: " << std::endl;
-    // for(size_t i=0; i<f.extent(0); ++i){
-    //   std::cout << "    ";
-    //   for(size_t j=0; j<f.extent(1); ++j)
-    //     std::cout << f(i,j) << " ";
-    //   std::cout << std::endl;
-    // }
     return OutputViewType(static_cast<RawScalarType*>(f.data()),new_layout);
-
-    // OutputViewType tmp;
-    // RawScalarType * data = f.data();
-    // if (actualRank==1)
-    //   tmp = OutputViewType(data,extent[0]);
-    // else if (actualRank==2)
-    //   tmp = OutputViewType(data,extent[0],extent[1]);
-    // else if (actualRank==3)
-    //   tmp = OutputViewType(data,extent[0],extent[1],extent[2]);
-    // else if (actualRank==4)
-    //   tmp = OutputViewType(data,extent[0],extent[1],extent[2],extent[3]);
-    // else if (actualRank==5)
-    //   tmp = OutputViewType(data,extent[0],extent[1],extent[2],extent[3],extent[4]);
-    // else if (actualRank==6)
-    //   tmp = OutputViewType(data,extent[0],extent[1],extent[2],extent[3],extent[4],extent[5]);
-    // else if (actualRank==7)
-    //   tmp = OutputViewType(data,extent[0],extent[1],extent[2],extent[3],extent[4],extent[5],extent[6]);
-    // else {
-    //   // Throw error
-    // }
-
-    // std::cout << "  new extent ("<<tmp.rank()<<"): ";
-    // for(size_t i=0; i<tmp.rank(); ++i) std::cout << tmp.extent(i) << " ";
-    // std::cout << std::endl;
-    // // std::cout << "  new values: " << std::endl;
-    // // for(size_t i=0; i<tmp.extent(1); ++i){
-    // //   std::cout << "    ";
-    // //   for(size_t j=0; j<tmp.extent(2); ++j)
-    // //     std::cout << tmp(0,i,j) << " ";
-    // //   std::cout << std::endl;
-    // // }
-
-    // return tmp;
-  }
-
-
-  /** 
-   \brief Applies a functor to an input array to an output array for various ranks.
-
-   I don't have a good place to put this, but it is shared across all the Basis definitions.
-  */
-  template<typename DT,
-           typename FunctorType,
-           typename OutputViewType,
-           typename InputViewType>
-  void
-  applyFunctorToSubArray(const typename DT::execution_space& space,
-                               OutputViewType outputView,
-                         const InputViewType  inputView)
-  {
-    typedef typename ExecSpace<typename InputViewType::execution_space,typename DT::execution_space>::ExecSpaceType ExecSpaceType;
-    
-    const auto loopSize = inputView.extent(0);
-    Kokkos::RangePolicy<ExecSpaceType,Kokkos::Schedule<Kokkos::Static> > policy(space, 0, loopSize);
-
-    const int inputRank = inputView.rank();
-    const int outputRank = outputView.rank();
-
-    if(inputRank == 2){
-      Kokkos::parallel_for( policy, FunctorType(outputView, inputView) );
-    } else if(inputRank == 3){
-
-      if(outputRank == 3){
-        Kokkos::parallel_for( policy, KOKKOS_LAMBDA(int cell){
-          auto output = Kokkos::subview( outputView, cell, Kokkos::ALL(), Kokkos::ALL() );
-          auto input = Kokkos::subview( inputView, cell, Kokkos::ALL(), Kokkos::ALL() );
-          FunctorType functor(output,input);
-          for(int i=0; i<input.extent(0); ++i)
-            functor(i);
-        });
-      } else if(outputRank == 4){
-        Kokkos::parallel_for( policy, KOKKOS_LAMBDA(int cell){
-          auto output = Kokkos::subview( outputView, cell, Kokkos::ALL(), Kokkos::ALL(), Kokkos::ALL() );
-          auto input = Kokkos::subview( inputView, cell, Kokkos::ALL(), Kokkos::ALL() );
-          FunctorType functor(output,input);
-          for(int i=0; i<input.extent(0); ++i)
-            functor(i);
-        });
-      } else {
-        // Throw error
-      }
-    } else {
-      // Throw error
-    }
-   
   }
 
 } // end namespace Intrepid2
