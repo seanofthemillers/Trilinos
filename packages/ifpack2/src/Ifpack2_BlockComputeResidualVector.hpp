@@ -761,6 +761,95 @@ namespace Ifpack2 {
         using subview_1D_right_t = decltype(Kokkos::subview(b, block_range, 0));
         subview_1D_right_t bb(nullptr, blocksize);
         subview_1D_right_t xx(nullptr, blocksize);
+        subview_1D_right_t xx_remote(nullptr, blocksize);
+        using subview_1D_stride_t = decltype(Kokkos::subview(y_packed_scalar, 0, block_range, 0, 0));
+        subview_1D_stride_t yy(nullptr, Kokkos::LayoutStride(blocksize, y_packed_scalar.stride_1()));
+        auto A_block_cst = ConstUnmanaged<tpetra_block_access_view_type>(NULL, blocksize, blocksize);
+        auto colindsub_used = (P == 0 ? colindsub : colindsub_remote);
+        auto rowptr_used = (P == 0 ? rowptr : rowptr_remote);
+
+        const local_ordinal_type lr = lclrow(rowidx);
+        const local_ordinal_type row = lr*blocksize;
+        // printf("const OverlapTag<P,B> &, const member_type &member\n");
+        if(rowptr_used[lr+1]-rowptr_used[lr] > 6)
+          printf("rowidx %i, lr %i, row %i, rowptr_used[lr] %lu, rowptr_used[lr+1] %lu, diff %lu\n",rowidx,lr,row,rowptr_used[lr], rowptr_used[lr+1], rowptr_used[lr+1]-rowptr_used[lr]);
+        for (local_ordinal_type col=0;col<num_vectors;++col) {
+          yy.assign_data(&y_packed_scalar(pri, 0, col, v));
+          if (P == 0) {
+            // y := b
+            bb.assign_data(&b(row, col));
+            if (member.team_rank() == 0)
+              VectorCopy(member, blocksize, bb, yy);
+            member.team_barrier();
+          }
+
+          // y -= Rx
+          const size_type A_k0 = A_block_rowptr[lr];
+          if(hasBlockCrsMatrix) {
+            Kokkos::parallel_for
+              (Kokkos::TeamThreadRange(member, rowptr_used[lr], rowptr_used[lr+1]),
+              [&](const local_ordinal_type &k) {
+                const size_type j = A_k0 + colindsub_used[k];
+                A_block_cst.assign_data( &tpetra_values(j*blocksize_square) );
+
+                const local_ordinal_type A_colind_at_j = A_colind[j];
+                if (P == 0) {
+                  const auto loc = is_dm2cm_active ? dm2cm[A_colind_at_j] : A_colind_at_j;
+                  xx.assign_data( &x(loc*blocksize, col) );
+                  VectorGemv(member, blocksize, A_block_cst, xx, yy);
+                } else {
+                  const auto loc = A_colind_at_j - num_local_rows;
+                  xx_remote.assign_data( &x_remote(loc*blocksize, col) );
+                  VectorGemv(member, blocksize, A_block_cst, xx_remote, yy);
+                }
+              });
+          }
+          else {
+            Kokkos::parallel_for
+              (Kokkos::TeamThreadRange(member, rowptr_used[lr], rowptr_used[lr+1]),
+              [&](const local_ordinal_type &k) {
+                const size_type j = A_k0 + colindsub_used[k];
+
+                const local_ordinal_type A_colind_at_j = A_colind[j];
+                if (P == 0) {
+                  const auto loc = is_dm2cm_active ? dm2cm[A_colind_at_j] : A_colind_at_j;
+                  xx.assign_data( &x(loc*blocksize, col) );
+                  for (local_ordinal_type k0=0;k0<blocksize;++k0)
+                    VectorDot(member, blocksize, lr, k, k0, colindsub_used, xx, yy);
+                } else {
+                  const auto loc = A_colind_at_j - num_local_rows;
+                  xx_remote.assign_data( &x_remote(loc*blocksize, col) );
+                  for (local_ordinal_type k0=0;k0<blocksize;++k0)
+                    VectorDot(member, blocksize, lr, k, k0, colindsub_used, xx_remote, yy);
+                }
+              });
+          }
+        }
+      }
+
+      template <int P, int B> struct OverlapTag2 {};
+
+      template<int P, int B>
+      KOKKOS_INLINE_FUNCTION
+      void
+      operator() (const OverlapTag2<P,B> &, const member_type &member) const {
+        const local_ordinal_type blocksize = (B == 0 ? blocksize_requested : B);
+        const local_ordinal_type blocksize_square = blocksize*blocksize;
+
+        // constants
+        const local_ordinal_type rowidx = member.league_rank();
+        const local_ordinal_type partidx = rowidx2part(rowidx);
+        const local_ordinal_type pri = part2packrowidx0(partidx) + (rowidx - partptr(partidx));
+        const local_ordinal_type v = partidx % vector_length;
+
+        const Kokkos::pair<local_ordinal_type,local_ordinal_type> block_range(0, blocksize);
+        const local_ordinal_type num_vectors = y_packed_scalar.extent(2);
+        const local_ordinal_type num_local_rows = lclrow.extent(0);
+
+        // subview pattern
+        using subview_1D_right_t = decltype(Kokkos::subview(b, block_range, 0));
+        subview_1D_right_t bb(nullptr, blocksize);
+        subview_1D_right_t xx(nullptr, blocksize);
         using subview_1D_stride_t = decltype(Kokkos::subview(y_packed_scalar, 0, block_range, 0, 0));
         subview_1D_stride_t yy(nullptr, Kokkos::LayoutStride(blocksize, y_packed_scalar.stride_1()));
         auto A_block_cst = ConstUnmanaged<tpetra_block_access_view_type>(NULL, blocksize, blocksize);
@@ -769,7 +858,8 @@ namespace Ifpack2 {
 
         // Get shared allocation for y
         // impl_scalar_type * local_yy = reinterpret_cast<impl_scalar_type *>(member.team_shmem().get_shmem(blocksize*sizeof(impl_scalar_type)));
-        impl_scalar_type * local_yy = reinterpret_cast<impl_scalar_type *>(member.team_scratch(0).get_shmem(blocksize*sizeof(impl_scalar_type)));
+        impl_scalar_type * local_yy = reinterpret_cast<impl_scalar_type *>(member.team_scratch(0).get_shmem(2*blocksize*sizeof(impl_scalar_type)));
+        impl_scalar_type * local_xx = local_yy+blocksize;
 
         const local_ordinal_type lr = lclrow(rowidx);
         const local_ordinal_type row = lr*blocksize;
@@ -814,6 +904,10 @@ namespace Ifpack2 {
                   xx.assign_data( &x_remote(loc*blocksize, col) );
                 }
 
+                Kokkos::parallel_for(Kokkos::TeamVectorRange(member, blocksize),[&](const local_ordinal_type & i){
+                  local_xx[i] = xx(i);
+                });
+
                 // for(local_ordinal_type k0=0; k0<blocksize; ++k0){
                 Kokkos::parallel_for
                 (Kokkos::TeamThreadRange(member, blocksize),
@@ -822,18 +916,14 @@ namespace Ifpack2 {
                   Kokkos::parallel_reduce( 
                       Kokkos::ThreadVectorRange(member, blocksize),
                       [&](const local_ordinal_type &k1, impl_scalar_type &lval){
-                        lval += A_block_cst(k0,k1)*xx(k1);
+                        lval += A_block_cst(k0,k1)*local_xx[k1];
+                        // lval += A_block_cst(k1,k0)*local_xx[k1];
                       },
                       val
                     );
                   Kokkos::single(Kokkos::PerThread(member),[&](){
-                    // yy(k0) -= val;
                     local_yy[k0] -= val;
-                    // atomicAdd(&local_yy[k0],-val);
                     // Kokkos::atomic_fetch_add(&local_yy[k0], typename subview_1D_stride_t::const_value_type(-val));
-                    // yy(k0) -= 10; // This does impact the residual so val is getting added to yy
-                    // yy(k0) -= 0; // This showed that val != 0
-                    // Kokkos::atomic_fetch_add(&yy(k0), typename subview_1D_stride_t::const_value_type(-val)); // Gives correct answer, but is slow
                   });
 
                   // This version works
@@ -886,108 +976,6 @@ namespace Ifpack2 {
           member.team_barrier();
         }
       }
-
-      // template <int B> struct InitTag {};
-
-      // template<int B>
-      // KOKKOS_INLINE_FUNCTION
-      // void
-      // operator() (const InitTag<B> &, const local_ordinal_type block_id) const {
-      //   const local_ordinal_type blocksize = (B == 0 ? blocksize_requested : B);
-
-      //   const Kokkos::pair<local_ordinal_type,local_ordinal_type> block_range(0, blocksize);
-      //   const local_ordinal_type num_vectors = y_packed_scalar.extent(2);
-
-      //   // Subview pattern
-      //   using subview_1D_right_t = decltype(Kokkos::subview(b, block_range, 0));
-      //   using subview_1D_stride_t = decltype(Kokkos::subview(y_packed_scalar, 0, block_range, 0, 0));
-
-      //   subview_1D_right_t  bb(nullptr, blocksize);
-      //   subview_1D_stride_t yy(nullptr, Kokkos::LayoutStride(blocksize, y_packed_scalar.stride_1()));
-
-      //   const local_ordinal_type y_offset = y_offsets(block_id);
-      //   const local_ordinal_type b_offset = b_offsets(block_id);
-      //   const size_type y_shift  = y_shifts(block_id);
-
-      //   for (local_ordinal_type vector=0;vector<num_vectors;++vector) {
-      //     yy.assign_data(&y_packed_scalar(y_offset, 0, vector, y_shift));
-      //     bb.assign_data(&b(b_offset, vector));
-      //     for(local_ordinal_type i=0; i<blocksize; ++i)
-      //       yy(i) = b(i);
-      // }
-
-
-      // template <int P, int B> struct OverlapTag2 {};
-
-      // template<int P, int B>
-      // KOKKOS_INLINE_FUNCTION
-      // void
-      // operator() (const OverlapTag2<P,B> &, const member_type &member) const {
-
-      //   // There are two kernels
-      //   // (1) y := b
-      //   // (2) y -= Rx
-
-      //   // Each "team thread" gets a separate block of y = b-A*x
-      //   // The thread vector is applied along a row of A*x
-      //   //
-
-      //   const local_ordinal_type blocksize = (B == 0 ? blocksize_requested : B);
-
-      //   const Kokkos::pair<local_ordinal_type,local_ordinal_type> block_range(0, blocksize);
-      //   const local_ordinal_type num_vectors = y_packed_scalar.extent(2);
-
-      //   // Subview pattern
-      //   using subview_1D_right_t = decltype(Kokkos::subview(b, block_range, 0));
-      //   using subview_1D_stride_t = decltype(Kokkos::subview(y_packed_scalar, 0, block_range, 0, 0));
-      //   using subview_2D_right_t = ConstUnmanaged<tpetra_block_access_view_type>;
-
-      //   subview_1D_right_t  bb(nullptr, blocksize);
-      //   subview_1D_right_t  xx(nullptr, blocksize);
-      //   subview_1D_stride_t yy(nullptr, Kokkos::LayoutStride(blocksize, y_packed_scalar.stride_1()));
-      //   subview_2D_right_t  RR(nullptr, blocksize, blocksize);
-
-      //   const local_ordinal_type idx = member.league_rank();
-
-      //   Kokkos::parallel_for
-      //       (Kokkos::TeamThreadRange(member, block_adj(idx), block_adj(idx+1)),
-      //        [&](const size_type &block_id) {
-
-      //     const size_type R_offset = R_offsets(block_id);
-      //     const size_type x_offset = (P == 0) ? x_offsets(block_id) : x_remote_offsets(block_id);
-      //     const size_type y_offset = y_offsets(block_id);
-      //     const size_type y_shift  = y_shift(block_id);
-
-      //     for (local_ordinal_type vector=0;vector<num_vectors;++vector) {
-      //       // Assign pointers to subviews
-      //       yy.assign_data(&y_packed_scalar(y_offset, 0, vector, y_shift));
-      //       if (P == 0)
-      //         xx.assign_data(&x(x_offset, vector));
-      //       else
-      //         xx.assign_data(&x_remote(x_offset, vector));
-      //       RR.assign_data( &tpetra_values(R_offset) );
-
-      //       for(int k0=0; k0<blocksize; ++k0){
-      //         impl_scalar_type val = 0;
-      //         Kokkos::parallel_for
-      //           (Kokkos::ThreadVectorRange(member, blocksize),
-      //           [&](const local_ordinal_type &k1) {
-      //               val += RR(k0,k1) *xx(k1);
-      //           });
-      //         Kokkos::atomic_fetch_add(&yy(k0), typename yyViewType::const_value_type(-val));
-      //       }
-
-      //       // Evaluate Gemv
-      //       VectorGemv(member, blocksize, AA, xx, yy);
-      //     }
-      //   });
-      // }
-
-
-
-
-
-
 
       // y = b - Rx; seq method
       template<typename MultiVectorLocalViewTypeY,
@@ -1122,18 +1110,40 @@ namespace Ifpack2 {
           // for (;vl_power_of_two<=blocksize_requested;vl_power_of_two*=2);
           // vl_power_of_two *= (vl_power_of_two < blocksize_requested ? 2 : 1);
           // const local_ordinal_type vl = vl_power_of_two > vector_length ? vector_length : vl_power_of_two;
+          // std::cout << "Operator:" << std::endl;
+          // std::cout << "  num_leagues:          " << rowidx2part.extent(0) << std::endl;
+          // std::cout << "  blocksize:            " << blocksize << std::endl;
+          // std::cout << "  y extents:            " << y_packed_scalar.extent(0) << ", " << y_packed_scalar.extent(1) << ", " << y_packed_scalar.extent(2) << ", " << y_packed_scalar.extent(3) << std::endl;
+          // std::cout << "  x extents:            " << x.extent(0) << ", " << x.extent(1) << std::endl;
+          // std::cout << "  b extents:            " << b.extent(0) << ", " << b.extent(1) << std::endl;
+          // std::cout << "  A entries:            " << tpetra_values.extent(0) << std::endl;
+          // std::cout << "  A blocks:             " << tpetra_values.extent(0) / blocksize / blocksize << std::endl;
+          // std::cout << "  rowptr extent:        " << rowptr.extent(0) << std::endl;
+          // std::cout << "  rowptr_remote extent: " << rowptr_remote.extent(0) << std::endl;
 #define BLOCKTRIDICONTAINER_DETAILS_COMPUTERESIDUAL(B)  \
           if (compute_owned) {                                          \
-            const auto policy = Kokkos::TeamPolicy<execution_space,Kokkos::LaunchBounds<64>,OverlapTag<0,B> > \
-              (rowidx2part.extent(0), team_size, vector_size).set_scratch_size(0,Kokkos::PerTeam(blocksize*sizeof(btdm_scalar_type)));    \
+            const auto policy = Kokkos::TeamPolicy<execution_space,Kokkos::LaunchBounds<64>,OverlapTag2<0,B> > \
+              (rowidx2part.extent(0), team_size, vector_size).set_scratch_size(0,Kokkos::PerTeam(2*blocksize*sizeof(btdm_scalar_type)));    \
             Kokkos::parallel_for                                        \
               ("ComputeResidual::TeamPolicy::run<OverlapTag<0> >", policy, *this); \
           } else {                                                      \
-            const auto policy = Kokkos::TeamPolicy<execution_space,Kokkos::LaunchBounds<64>,OverlapTag<1,B> > \
-              (rowidx2part.extent(0), team_size, vector_size).set_scratch_size(0,Kokkos::PerTeam(blocksize*sizeof(btdm_scalar_type)));    \
+            const auto policy = Kokkos::TeamPolicy<execution_space,Kokkos::LaunchBounds<64>,OverlapTag2<1,B> > \
+              (rowidx2part.extent(0), team_size, vector_size).set_scratch_size(0,Kokkos::PerTeam(2*blocksize*sizeof(btdm_scalar_type)));    \
             Kokkos::parallel_for                                        \
               ("ComputeResidual::TeamPolicy::run<OverlapTag<1> >", policy, *this); \
           } break
+// #define BLOCKTRIDICONTAINER_DETAILS_COMPUTERESIDUAL(B)  \
+//           if (compute_owned) {                                          \
+//             const auto policy = Kokkos::TeamPolicy<execution_space,Kokkos::LaunchBounds<64>,OverlapTag<0,B> > \
+//               (rowidx2part.extent(0), team_size, vector_size).set_scratch_size(0,Kokkos::PerTeam(2*blocksize*sizeof(btdm_scalar_type)));    \
+//             Kokkos::parallel_for                                        \
+//               ("ComputeResidual::TeamPolicy::run<OverlapTag<0> >", policy, *this); \
+//           } else {                                                      \
+//             const auto policy = Kokkos::TeamPolicy<execution_space,Kokkos::LaunchBounds<64>,OverlapTag<1,B> > \
+//               (rowidx2part.extent(0), team_size, vector_size).set_scratch_size(0,Kokkos::PerTeam(2*blocksize*sizeof(btdm_scalar_type)));    \
+//             Kokkos::parallel_for                                        \
+//               ("ComputeResidual::TeamPolicy::run<OverlapTag<1> >", policy, *this); \
+//           } break
 // #define BLOCKTRIDICONTAINER_DETAILS_COMPUTERESIDUAL(B)  \
 //           if (compute_owned) {                                          \
 //             const Kokkos::TeamPolicy<execution_space,InitTag<B> > \
