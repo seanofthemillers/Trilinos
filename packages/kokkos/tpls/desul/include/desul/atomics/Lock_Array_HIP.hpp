@@ -84,14 +84,14 @@ __device__ inline bool lock_address_hip(void* ptr, desul::MemoryScopeDevice) {
   size_t offset = size_t(ptr);
   offset = offset >> 2;
   offset = offset & HIP_SPACE_ATOMIC_MASK;
-  return (0 == atomicExch(&desul::Impl::HIP_SPACE_ATOMIC_LOCKS_DEVICE[offset], 1));
+  return (0 == atomicAdd(&desul::Impl::HIP_SPACE_ATOMIC_LOCKS_DEVICE[offset], 1));
 }
 
 __device__ inline bool lock_address_hip(void* ptr, desul::MemoryScopeNode) {
   size_t offset = size_t(ptr);
   offset = offset >> 2;
   offset = offset & HIP_SPACE_ATOMIC_MASK;
-  return (0 == atomicExch(&desul::Impl::HIP_SPACE_ATOMIC_LOCKS_NODE[offset], 1));
+  return (0 == atomicAdd(&desul::Impl::HIP_SPACE_ATOMIC_LOCKS_NODE[offset], 1));
 }
 
 /**
@@ -105,14 +105,14 @@ __device__ inline void unlock_address_hip(void* ptr, desul::MemoryScopeDevice) {
   size_t offset = size_t(ptr);
   offset = offset >> 2;
   offset = offset & HIP_SPACE_ATOMIC_MASK;
-  atomicExch(&desul::Impl::HIP_SPACE_ATOMIC_LOCKS_DEVICE[offset], 0);
+  atomicMin(&desul::Impl::HIP_SPACE_ATOMIC_LOCKS_DEVICE[offset], 0);
 }
 
 __device__ inline void unlock_address_hip(void* ptr, desul::MemoryScopeNode) {
   size_t offset = size_t(ptr);
   offset = offset >> 2;
   offset = offset & HIP_SPACE_ATOMIC_MASK;
-  atomicExch(&desul::Impl::HIP_SPACE_ATOMIC_LOCKS_NODE[offset], 0);
+  atomicMin(&desul::Impl::HIP_SPACE_ATOMIC_LOCKS_NODE[offset], 0);
 }
 
 #ifdef DESUL_ATOMICS_ENABLE_HIP_SEPARABLE_COMPILATION
